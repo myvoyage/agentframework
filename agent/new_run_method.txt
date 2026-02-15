@@ -1,0 +1,70 @@
+// Run executes the chat agent with memory management and object pool optimization
+func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	// 转换到 RUNNING 状态
+	if err := a.stateMachine.Transition(ctx, StateRunning, "Starting Run execution", map[string]any{
+		"input_length": len(input),
+		"tool_count":   len(a.tools),
+	}); err != nil {
+		return nil, err
+	}
+
+	// 确保在函数结束时处理状态转换
+	defer func() {
+		if a.stateMachine.Current() == StateRunning {
+			// 如果仍然在运行状态，转换为 FINISHED
+			_ = a.stateMachine.Transition(context.Background(), StateFinished, "Run execution completed", nil)
+		}
+	}()
+
+	// 创建用户消息并使用对象池优化内存分配
+	userMsg := a.messagePool.Acquire()
+	userMsg.Role = schema.User
+	userMsg.Content = input
+
+	// 确保在函数结束时释放对象回池
+	defer func() {
+		a.messagePool.Release(userMsg)
+	}()
+
+	// Process user message (check and trim if necessary)
+	userMsg = a.memoryManager.ProcessMessage(userMsg)
+
+	// 构建消息列表
+	messages := a.buildMessages(userMsg)
+
+	// 生成模型响应
+	resp, err := a.model.Generate(ctx, messages, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 如果有工具调用，执行工具
+	if len(resp.ToolCalls) > 0 && len(a.tools) > 0 {
+		toolMsgs, err := a.executeTools(ctx, resp)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, resp)
+		messages = append(messages, toolMsgs...)
+
+		// 重新生成响应
+		resp, err = a.model.Generate(ctx, messages, opts...)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// 处理响应消息
+	resp = a.memoryManager.ProcessMessage(resp)
+
+	// 更新线程消息
+	a.updateThreadMessages(userMsg, resp)
+
+	// 转换到 FINISHED 状态
+	_ = a.stateMachine.Transition(ctx, StateFinished, "Run execution completed successfully", map[string]any{
+		"response_length": len(resp.Content),
+		"tool_calls_count": len(resp.ToolCalls),
+	})
+
+	return resp, nil
+}

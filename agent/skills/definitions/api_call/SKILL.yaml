@@ -1,0 +1,179 @@
+# API Call Skill Definition
+# API调用技能的完整定义
+
+id: "api_call"
+name: "API调用技能"
+description: "调用外部API的标准化流程，包含认证、请求构建、响应处理、错误处理等完整流程"
+version: "2.0.0"
+category: "api"
+author: "AgentFramework Team"
+license: "AGPL-3.0-or-later"
+
+# 前置条件
+prerequisites:
+  - type: "api_key"
+    description: "检查API密钥配置"
+    check: "env.API_KEY or config.api_key"
+    required: true
+    auto_fix: false
+
+  - type: "network_access"
+    description: "检查网络连接"
+    check: "curl -s -o /dev/null -w '%{http_code}' https://api.example.com"
+    required: true
+
+  - type: "dependency"
+    description: "检查依赖包"
+    check: "http_client_exists()"
+    required: true
+
+# 触发条件
+triggers:
+  - "user mentions API call, external API, third-party API"
+  - "user provides API endpoint or URL"
+  - "user needs to integrate external service"
+  - "user mentions REST API, GraphQL, gRPC"
+  - "user wants to fetch data from API"
+
+# 工作流定义
+workflow:
+  # 步骤1: 验证输入
+  - id: "validate_input"
+    name: "验证API调用参数"
+    action: "validate"
+    parameters:
+      required_fields: "endpoint,method"
+      optional_fields: "headers,body,timeout"
+    timeout: 5s
+
+  # 步骤2: 检查API注册表（去重）
+  - id: "check_registry"
+    name: "检查API注册表"
+    action: "check_exists"
+    description: "检查是否已有相同的API调用定义"
+    parameters:
+      key: "api:{{endpoint}}:{{method}}"
+    skip_if: "config.skip_check or config.force_new"
+    timeout: 2s
+
+  # 步骤3: 准备认证
+  - id: "prepare_auth"
+    name: "准备认证信息"
+    action: "execute"
+    description: "根据认证类型准备认证信息"
+    timeout: 5s
+    parameters:
+      auth_type: "{{.Config.AuthType | default 'none'}}"
+
+  # 步骤4: 构建请求
+  - id: "build_request"
+    name: "构建HTTP请求"
+    action: "execute"
+    description: "构建完整的HTTP请求"
+    timeout: 10s
+    parameters:
+      use_template: "api_{{.Method | lower}}_request"
+
+  # 步骤5: 发送请求
+  - id: "send_request"
+    name: "发送API请求"
+    action: "execute"
+    description: "发送HTTP请求到API"
+    timeout: 60s
+    retry_on_failure: true
+    max_retries: 3
+    retry_delay: 2s
+
+  # 步骤6: 处理响应
+  - id: "process_response"
+    name: "处理API响应"
+    action: "execute"
+    description: "解析和验证响应数据"
+    timeout: 10s
+
+  # 步骤7: 错误处理
+  - id: "handle_error"
+    name: "处理错误"
+    action: "execute"
+    description: "统一处理错误和异常"
+    skip_if: "result.success == true"
+    timeout: 5s
+
+  # 步骤8: 记录调用
+  - id: "log_call"
+    name: "记录API调用"
+    action: "execute"
+    description: "记录API调用日志和统计"
+    skip_if: "config.disable_logging"
+    timeout: 2s
+
+  # 步骤9: 清理资源
+  - id: "cleanup"
+    name: "清理资源"
+    action: "cleanup"
+    description: "清理连接和临时资源"
+    timeout: 5s
+
+# 配置
+config:
+  # API配置
+  base_url: "https://api.example.com"
+  api_version: "v1"
+  timeout: 30s
+  connect_timeout: 10s
+
+  # 认证配置
+  auth_type: "bearer"  # none, basic, bearer, api_key, oauth2
+  api_key_header: "X-API-Key"
+  api_key: ""
+
+  # 重试配置
+  max_retries: 3
+  retry_delay: 2s
+  retry_on_5xx: true
+  retry_on_timeout: true
+
+  # 速率限制
+  rate_limit_enabled: true
+  rate_limit_requests_per_minute: 60
+  rate_limit_wait: true
+
+  # 缓存配置
+  cache_enabled: false
+  cache_ttl: 300s
+
+  # 日志配置
+  log_requests: true
+  log_responses: false
+  log_level: "info"
+
+# 元数据
+metadata:
+  supported_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "PATCH"
+    - "DELETE"
+
+  supported_auth_types:
+    - "none"
+    - "basic"
+    - "bearer"
+    - "api_key"
+    - "oauth2"
+
+  examples_count: 3
+  requires_network: true
+  requires_auth: true
+  safe_for_production: true
+  compatible_agents:
+    - "ChatAgent"
+    - "ReActAgent"
+    - "WorkerAgent"
+
+# 使用统计
+stats:
+  total_calls: 0
+  success_rate: 0
+  average_duration: 0

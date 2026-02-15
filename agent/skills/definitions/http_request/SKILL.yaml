@@ -1,0 +1,144 @@
+# HTTP Request Skill Definition
+# HTTP请求技能的完整定义
+
+id: "http_request"
+name: "HTTP请求技能"
+description: "发送HTTP请求的标准流程，支持GET、POST、PUT、DELETE等方法，具有缓存、重试、超时控制等特性"
+version: "2.0.0"
+category: "http"
+author: "AgentFramework Team"
+license: "AGPL-3.0-or-later"
+
+# 前置条件
+prerequisites:
+  - type: "network_access"
+    description: "检查网络连接"
+    check: "ping -c 1 8.8.8.8"
+    required: true
+    auto_fix: false
+
+  - type: "http_client"
+    description: "检查HTTP客户端是否可用"
+    check: "http_client_exists()"
+    required: true
+
+  - type: "dependency"
+    description: "检查依赖包"
+    check: "net/http包"
+    required: true
+
+# 触发条件（何时使用该技能）
+triggers:
+  - "user mentions HTTP, API, REST, request"
+  - "user provides URL"
+  - "user needs to call external service"
+  - "user wants to fetch data from API"
+  - "user mentions GET, POST, PUT, DELETE methods"
+
+# 工作流定义
+workflow:
+  # 步骤1: 验证输入
+  - id: "validate_input"
+    name: "验证输入参数"
+    action: "validate"
+    description: "验证必需的输入参数是否存在"
+    parameters:
+      required_fields: "method,url"
+    timeout: 5s
+
+  # 步骤2: 检查缓存
+  - id: "check_cache"
+    name: "检查缓存"
+    action: "check_exists"
+    description: "检查是否已有缓存的响应"
+    parameters:
+      key: "cache:{{method}}:{{url}}"
+    skip_if: "config.cache_disabled or method == POST"
+    timeout: 1s
+
+  # 步骤3: 检查API注册表
+  - id: "check_registry"
+    name: "检查API注册表"
+    action: "check_exists"
+    description: "检查是否已有相同的API调用（去重）"
+    parameters:
+      key: "api:{{method}}:{{url}}"
+    skip_if: "config.skip_check or config.force_new"
+    timeout: 2s
+
+  # 步骤4: 发送HTTP请求
+  - id: "send_request"
+    name: "发送HTTP请求"
+    action: "execute"
+    description: "发送实际的HTTP请求"
+    timeout: 30s
+    retry_on_failure: true
+    max_retries: 3
+    parameters:
+      use_template: "http_{{method | lower}}_request"
+
+  # 步骤5: 处理响应
+  - id: "process_response"
+    name: "处理响应"
+    action: "execute"
+    description: "解析和处理响应数据"
+    timeout: 10s
+
+  # 步骤6: 缓存结果
+  - id: "cache_result"
+    name: "缓存结果"
+    action: "execute"
+    description: "将成功响应存入缓存"
+    skip_if: "method != GET or config.cache_disabled"
+    timeout: 5s
+
+  # 步骤7: 清理资源
+  - id: "cleanup"
+    name: "清理资源"
+    action: "cleanup"
+    description: "清理临时资源"
+    timeout: 5s
+
+# 配置
+config:
+  # 缓存配置
+  cache_enabled: true
+  cache_ttl: 300s
+  cache_disabled: false
+
+  # 超时配置
+  default_timeout: 30s
+  connect_timeout: 10s
+
+  # 重试配置
+  max_retries: 3
+  retry_delay: 1s
+
+  # 输出配置
+  max_output_size: 10485760  # 10MB
+
+  # 代理配置
+  proxy_enabled: false
+  proxy_url: ""
+
+  # TLS配置
+  tls_verify: true
+  tls_cert_file: ""
+  tls_key_file: ""
+
+# 元数据
+metadata:
+  examples_count: 2
+  requires_network: true
+  requires_auth: false
+  safe_for_production: true
+  compatible_agents:
+    - "ChatAgent"
+    - "ReActAgent"
+    - "WorkerAgent"
+
+# 使用统计
+stats:
+  total_calls: 0
+  success_rate: 0
+  average_duration: 0

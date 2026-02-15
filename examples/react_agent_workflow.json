@@ -1,0 +1,50 @@
+{
+  "type": "sequential",
+  "name": "research_workflow",
+  "metadata": {
+    "description": "A workflow that uses ReAct agent for research tasks",
+    "version": "1.0.0"
+  },
+  "nodes": {
+    "planner": {
+      "type": "agent",
+      "name": "Research Planner",
+      "description": "Plans the research approach",
+      "config": {
+        "kind": "chat",
+        "model": "gpt-4",
+        "instructions": "You are a research planner. Break down the research question into actionable steps."
+      }
+    },
+    "researcher": {
+      "type": "agent",
+      "name": "ReAct Researcher",
+      "description": "Conducts research using ReAct reasoning",
+      "config": {
+        "kind": "react",
+        "model": "gpt-4",
+        "instructions": "You are a research assistant that uses tools to gather information. Think step by step, use available tools when needed, and provide comprehensive answers.",
+        "max_iterations": 15,
+        "memory": {
+          "enable_trimming": true,
+          "max_messages": 30,
+          "max_tokens": 6000,
+          "preserve_recent": 10
+        }
+      },
+      "max_retries": 2,
+      "retry_delay": "2s",
+      "timeout": "5m"
+    },
+    "summarizer": {
+      "type": "agent",
+      "name": "Research Summarizer",
+      "description": "Summarizes research findings",
+      "config": {
+        "kind": "chat",
+        "model": "gpt-4",
+        "instructions": "You are a research summarizer. Create a clear, concise summary of the research findings."
+      }
+    }
+  }
+}

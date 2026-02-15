@@ -1,0 +1,14 @@
+{
+  "name": "agentframework-desktop",
+  "outputfilename": "AgentFramework",
+  "frontend": {
+    "dir": "./frontend",
+    "devserverurl": "http://localhost:5173",
+    "build": {
+      "command": "npm run build",
+      "outputdir": "./frontend/dist"
+    }
+  },
+  "wailsjsdir": "./frontend/wailsjs",
+  "appicon": "./build/appicon.png"
+}

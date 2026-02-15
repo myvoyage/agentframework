@@ -1,0 +1,78 @@
+# Pipeline 演示配置集合
+#
+# 本文件包含多个 pipeline 演示配置，每个配置对应不同阶段的演示。
+# 使用特定配置时，可以通过解析注释分隔的 YAML 文档。
+
+# ============================================
+# 基础演示
+# ============================================
+version: "0.1"
+id: pipe-demo
+memory_context_size: 100
+description: 基础 pipeline 演示
+steps:
+  - id: s1
+    type: task
+    tool: hello
+    params:
+      name: World
+    next: end
+  - id: end
+    type: end
+
+---
+
+# ============================================
+# Stage 5 演示
+# ============================================
+version: "0.1"
+id: stage5-demo
+memory_context_size: 100
+description: Stage 5 功能演示
+steps:
+  - id: s1
+    type: task
+    tool: hello
+    params:
+      name: Stage5
+    next: end
+  - id: end
+    type: end
+
+---
+
+# ============================================
+# Stage 6 演示
+# ============================================
+version: "0.1"
+id: stage6-demo
+memory_context_size: 100
+description: Stage 6 功能演示（Production RPC Bridge）
+steps:
+  - id: s1
+    type: task
+    tool: hello
+    params:
+      name: Stage6
+    next: end
+  - id: end
+    type: end
+
+---
+
+# ============================================
+# Stage 7 演示
+# ============================================
+version: "0.1"
+id: stage7-demo
+memory_context_size: 100
+description: Stage 7 功能演示
+steps:
+  - id: s1
+    type: task
+    tool: hello
+    params:
+      name: Stage7
+    next: end
+  - id: end
+    type: end

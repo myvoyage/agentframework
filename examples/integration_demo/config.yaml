@@ -1,0 +1,47 @@
+# Agent Framework - Skill System Integration Demo Configuration
+# 技能系统集成演示配置
+
+name: skill_integration_demo
+version: 1.0.0
+defaultModel: default
+
+# Thread store configuration
+threadStore:
+  type: memory
+  maxMessages: 100
+  maxMessageSize: 10000
+
+# Enable skill system
+skillSystemDir: ".skills"
+
+# Model configurations
+models:
+  default:
+    kind: openai
+    apiKey: "${OPENAI_API_KEY}"
+    model: "${OPENAI_MODEL:-gpt-4}"
+    baseURL: "${OPENAI_BASE_URL}"
+
+# Agent declarations
+agents:
+  - name: skill_assistant
+    kind: chat
+    model: default
+    instructions: |
+      You are an AI assistant with access to various skills including:
+      - HTTP requests: Make API calls to external services
+      - File operations: Read, write, and manage files
+      - API calls: Call external APIs with authentication
+
+      Use these skills to help users accomplish their tasks efficiently.
+      Always check if a skill exists before creating new functionality.
+    middlewares:
+      - logging
+      - telemetry
+
+# Workflow declarations
+workflows:
+  - name: skill_workflow
+    kind: sequential
+    steps:
+      - skill_assistant

@@ -1,0 +1,12 @@
+version: "0.1"
+id: stage6-demo
+memory_context_size: 100
+steps:
+  - id: s1
+    type: task
+    tool: hello
+    params:
+      name: Stage6
+    next: end
+  - id: end
+    type: end

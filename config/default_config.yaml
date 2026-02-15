@@ -1,0 +1,61 @@
+# Agent Framework Default Configuration
+# This file contains all default configuration values for the framework
+# Format: YAML
+
+# Memory Configuration
+memory:
+  # Monitoring
+  enabled: true
+  interval: 5s
+  historySize: 100
+  alertRules:
+    - id: default-heap-512mb
+      name: "Default Heap Usage Warning"
+      description: "Alert when heap memory usage exceeds 512MB"
+      severity: warning
+      threshold: 536870912  # 512 * 1024 = 52428800
+      operator: ">"
+      duration: 30s
+      enabled: true
+    - id: default-heap-1gb
+      name: "Default Heap Usage Error"
+      description: "Alert when heap memory usage exceeds 1GB"
+      severity: error
+      threshold: 1073741824 # 1024 * 1024 = 1073741824
+      operator: ">"
+      duration: 15s
+      enabled: true
+
+  # Cache Configuration
+  cache:
+    maxSize: 200
+    ttl: 1h
+    enableDynamicWeights: true
+
+  # Worker Configuration
+  worker:
+  count: 5
+  initialPoolSize: 10
+  maxPoolSize: 100
+  resizePolicy: dynamic
+
+  # Container Configuration
+  container:
+    maxInitialSize: 5
+    maxTotalSize: 20
+
+  # Event Bus Configuration
+  eventBus:
+    initialQueueSize: 1000
+    maxQueueSize: 10000
+    resizeThreshold: 0.8
+
+# Model Configuration
+model:
+  defaultModel: "llama3"
+  fallbackModel: "gpt-4"
+
+# Monitoring Configuration
+monitoring:
+  samplingRate: 0.2
+  maxSamples: 200

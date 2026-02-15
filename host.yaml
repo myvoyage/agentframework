@@ -1,0 +1,19 @@
+name: agent_cli_app
+version: "1.0.0"
+defaultModel: "GLM-4-Flash-250414"
+
+threadStore:
+  type: memory
+
+agents:
+  - name: default_chat
+    kind: chat
+    model: "GLM-4-Flash-250414"
+    instructions: "You are a helpful assistant. Answer in Chinese."
+
+workflows:
+  - name: simple_chat
+    kind: sequential
+    steps:
+      - default_chat
+

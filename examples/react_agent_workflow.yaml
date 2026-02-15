@@ -1,0 +1,80 @@
+type: dag
+name: problem_solving_workflow
+metadata:
+  description: A DAG workflow using ReAct agent for complex problem solving
+  version: 1.0.0
+
+nodes:
+  input_analyzer:
+    type: agent
+    name: Input Analyzer
+    description: Analyzes the input problem
+    config:
+      kind: chat
+      model: gpt-4
+      instructions: You are an input analyzer. Understand the problem and identify key requirements.
+    priority: 1
+    max_retries: 1
+    retry_delay: 1s
+    timeout: 2m
+
+  react_solver:
+    type: agent
+    name: ReAct Problem Solver
+    description: Solves problems using ReAct reasoning
+    config:
+      kind: react
+      model: gpt-4
+      instructions: |
+        You are an expert problem solver that uses tools and reasoning to solve complex problems.
+        
+        Follow these steps:
+        1. Understand the problem thoroughly
+        2. Break it down into smaller sub-problems
+        3. Use available tools to gather information
+        4. Reason through each step
+        5. Provide a comprehensive solution
+      max_iterations: 20
+      memory:
+        enable_trimming: true
+        max_messages: 40
+        max_tokens: 8000
+        preserve_recent: 15
+    priority: 2
+    max_retries: 3
+    retry_delay: 3s
+    timeout: 10m
+
+  solution_validator:
+    type: agent
+    name: Solution Validator
+    description: Validates the proposed solution
+    config:
+      kind: chat
+      model: gpt-4
+      instructions: You are a solution validator. Check if the solution is correct, complete, and addresses all requirements.
+    priority: 3
+    max_retries: 1
+    retry_delay: 1s
+    timeout: 2m
+
+  output_formatter:
+    type: agent
+    name: Output Formatter
+    description: Formats the final output
+    config:
+      kind: chat
+      model: gpt-4
+      instructions: You are an output formatter. Present the solution in a clear, well-structured format.
+    priority: 4
+    max_retries: 1
+    retry_delay: 1s
+    timeout: 2m
+
+edges:
+  - from: input_analyzer
+    to: react_solver
+  - from: react_solver
+    to: solution_validator
+  - from: solution_validator
+    to: output_formatter

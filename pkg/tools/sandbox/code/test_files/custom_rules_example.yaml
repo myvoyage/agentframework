@@ -1,0 +1,71 @@
+# 自定义代码分析规则示例
+# 
+# 规则配置格式：
+# - name: 规则名称（必填）
+# - language: 编程语言（必填，支持: python, javascript, go, bash）
+# - pattern: 正则表达式模式（必填）
+# - category: 类别（可选，默认: custom，支持: naming, style, performance, best_practice, security）
+# - severity: 严重级别（可选，默认: info，支持: high, medium, low, info）
+# - description: 问题描述（必填）
+# - suggestion: 修复建议（可选）
+
+custom_rules:
+  # Python 自定义规则示例
+  - name: "python_print_statement"
+    language: "python"
+    pattern: '\bprint\s*\('
+    category: "best_practice"
+    severity: "info"
+    description: "生产代码中避免使用 print 语句"
+    suggestion: "使用 logging 模块代替 print"
+  
+  - name: "python_todo_comment"
+    language: "python"
+    pattern: '#\s*TODO'
+    category: "style"
+    severity: "info"
+    description: "发现 TODO 注释"
+    suggestion: "完成或删除 TODO 注释"
+  
+  # JavaScript 自定义规则示例
+  - name: "js_debugger_statement"
+    language: "javascript"
+    pattern: '\bdebugger\b'
+    category: "best_practice"
+    severity: "medium"
+    description: "生产代码中不应包含 debugger 语句"
+    suggestion: "移除 debugger 语句"
+  
+  - name: "js_alert_usage"
+    language: "javascript"
+    pattern: '\balert\s*\('
+    category: "best_practice"
+    severity: "low"
+    description: "避免使用 alert"
+    suggestion: "使用更好的用户提示方式"
+  
+  # Go 自定义规则示例
+  - name: "go_fmt_println"
+    language: "go"
+    pattern: '\bfmt\.Println\s*\('
+    category: "best_practice"
+    severity: "info"
+    description: "生产代码中避免使用 fmt.Println"
+    suggestion: "使用日志库代替 fmt.Println"
+  
+  - name: "go_panic_usage"
+    language: "go"
+    pattern: '\bpanic\s*\('
+    category: "best_practice"
+    severity: "medium"
+    description: "谨慎使用 panic"
+    suggestion: "考虑返回错误而不是 panic"
+  
+  # Bash 自定义规则示例
+  - name: "bash_sudo_usage"
+    language: "bash"
+    pattern: '\bsudo\s+'
+    category: "security"
+    severity: "medium"
+    description: "使用了 sudo 命令"
+    suggestion: "确保 sudo 使用是必要且安全的"
