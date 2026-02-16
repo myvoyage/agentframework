@@ -4,7 +4,6 @@ package agent
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"sync"
 	"time"
 

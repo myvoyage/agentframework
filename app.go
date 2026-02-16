@@ -8,21 +8,17 @@ import (
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
 	"go.opentelemetry.io/otel/sdk/resource"
 	"go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
 
 	"AgentFramework/agent"
 	"AgentFramework/agent/skills"
+	"AgentFramework/core"
 )
 
-// App struct
+// App struct wraps the core application for desktop usage
 type App struct {
-	ctx           context.Context
-	host          *agent.Host
-	skillLibrary  agent.SkillLibrary
-	skillSystem   *agent.SkillSystem
-	fileExplorer  *agent.FileExplorer
-	eventBus      agent.EventBus
-	workflowManager *agent.WorkflowManager
+	core *core.Application
+	ctx  context.Context
 }
 
 // InitOpenTelemetry initializes OpenTelemetry tracing
@@ -54,15 +50,16 @@ func InitOpenTelemetry(ctx context.Context) (*trace.TracerProvider, error) {
 }
 
 // NewApp creates a new App application struct
+// Refactored to use core.Application (DRY principle)
 func NewApp() *App {
 	ctx := context.Background()
-	
+
 	// Initialize OpenTelemetry
 	_, err := InitOpenTelemetry(ctx)
 	if err != nil {
 		fmt.Printf("Warning: Failed to initialize OpenTelemetry: %v\n", err)
 	}
-	
+
 	// 创建默认的HostConfig
 	defaultHostConfig := &agent.HostConfig{
 		Models: map[string]agent.ModelConfig{
@@ -73,56 +70,27 @@ func NewApp() *App {
 		},
 		SkillSystemDir: ".skills", // 启用技能系统
 	}
-	
+
 	// 创建模型工厂
 	modelFactory := agent.NewModelFactoryWithConfig(agent.ModelConfig{
 		Type:  "ollama",
 		Model: "llama3",
 	})
-	
-	// 创建Host实例
-	host, err := agent.NewHost(ctx, defaultHostConfig, nil, nil)
-	if err != nil {
-		panic(fmt.Errorf("failed to create host: %w", err))
-	}
-	
-	// 创建技能库并注册内置技能
-	skillLibrary := agent.NewSkillLibrary()
-	
-	// 注册内置技能
-	skills := []agent.Skill{
-		agent.NewHTTPRequestSkill(),
-		agent.NewFileOperationSkill(),
-		agent.NewCodeExecutionSkill(),
-		agent.NewDataProcessingSkill(),
-	}
-	
-	for _, skill := range skills {
-		skillLibrary.RegisterSkill(ctx, skill)
-	}
-	
-	// 创建工作流管理器
-	workflowManager := agent.NewWorkflowManager(skillLibrary, modelFactory)
 
-	// 初始化技能系统
-	var skillSystem *agent.SkillSystem
-	if defaultHostConfig.SkillSystemDir != "" {
-		var err error
-		skillSystem, err = agent.NewSkillSystem(defaultHostConfig.SkillSystemDir)
-		if err != nil {
-			fmt.Printf("Warning: Failed to initialize skill system: %v\n", err)
-		} else {
-			fmt.Printf("Skill system initialized successfully at: %s\n", defaultHostConfig.SkillSystemDir)
-		}
+	// Create core application (shared between CLI and desktop)
+	coreApp, err := core.NewApplication(ctx, defaultHostConfig, modelFactory, nil)
+	if err != nil {
+		panic(fmt.Errorf("failed to create core application: %w", err))
+	}
+
+	// Initialize core application
+	if err := coreApp.Initialize(ctx); err != nil {
+		panic(fmt.Errorf("failed to initialize core application: %w", err))
 	}
 
 	return &App{
-		host:            host,
-		skillLibrary:    skillLibrary,
-		skillSystem:     skillSystem,
-		fileExplorer:    agent.NewFileExplorer(),
-		eventBus:        agent.NewMemoryEventBus(),
-		workflowManager: workflowManager,
+		core: coreApp,
+		ctx:  ctx,
 	}
 }
 
@@ -131,15 +99,15 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	// 初始化工作流管理器
-	a.workflowManager.Init(ctx)
+	a.core.GetWorkflowManager().Init(ctx)
 	// 初始化文件浏览器
-	a.fileExplorer.Init(ctx)
+	a.core.GetFileExplorer().Init(ctx)
 }
 
 // getSkillSystemBaseDir returns the base directory for the skill system
 func (a *App) getSkillSystemBaseDir() string {
-	if a.host != nil {
-		cfg := a.host.Config()
+	if a.core.GetHost() != nil {
+		cfg := a.core.GetHost().Config()
 		if cfg != nil && cfg.SkillSystemDir != "" {
 			return cfg.SkillSystemDir
 		}
@@ -151,64 +119,64 @@ func (a *App) getSkillSystemBaseDir() string {
 
 // CreateWorkflow creates a new workflow
 func (a *App) CreateWorkflow(name string, description string, definition ...string) (string, error) {
-	return a.workflowManager.CreateWorkflow(a.ctx, name, description, definition...)
+	return a.core.GetWorkflowManager().CreateWorkflow(a.ctx, name, description, definition...)
 }
 
 // GetWorkflows returns all workflows
 func (a *App) GetWorkflows() ([]*agent.WorkflowInfo, error) {
-	return a.workflowManager.GetWorkflows(a.ctx)
+	return a.core.GetWorkflowManager().GetWorkflows(a.ctx)
 }
 
 // GetWorkflow returns a workflow by ID
 func (a *App) GetWorkflow(id string) (*agent.WorkflowInfo, error) {
-	return a.workflowManager.GetWorkflow(a.ctx, id)
+	return a.core.GetWorkflowManager().GetWorkflow(a.ctx, id)
 }
 
 // UpdateWorkflow updates a workflow
 func (a *App) UpdateWorkflow(id string, name string, description string, definition string) error {
-	return a.workflowManager.UpdateWorkflow(a.ctx, id, name, description, definition)
+	return a.core.GetWorkflowManager().UpdateWorkflow(a.ctx, id, name, description, definition)
 }
 
 // DeleteWorkflow deletes a workflow
 func (a *App) DeleteWorkflow(id string) error {
-	return a.workflowManager.DeleteWorkflow(a.ctx, id)
+	return a.core.GetWorkflowManager().DeleteWorkflow(a.ctx, id)
 }
 
 // ExecuteWorkflow executes a workflow
 func (a *App) ExecuteWorkflow(id string, input string) (string, error) {
-	return a.workflowManager.ExecuteWorkflow(a.ctx, id, input)
+	return a.core.GetWorkflowManager().ExecuteWorkflow(a.ctx, id, input)
 }
 
 // GetWorkflowVersions returns all versions of a workflow
 func (a *App) GetWorkflowVersions(workflowID string) ([]*agent.WorkflowVersion, error) {
-	return a.workflowManager.GetWorkflowVersions(a.ctx, workflowID)
+	return a.core.GetWorkflowManager().GetWorkflowVersions(a.ctx, workflowID)
 }
 
 // GetWorkflowVersion returns a specific version of a workflow
 func (a *App) GetWorkflowVersion(workflowID string, version int) (*agent.WorkflowVersion, error) {
-	return a.workflowManager.GetWorkflowVersion(a.ctx, workflowID, version)
+	return a.core.GetWorkflowManager().GetWorkflowVersion(a.ctx, workflowID, version)
 }
 
 // RestoreWorkflowVersion restores a workflow to a specific version
 func (a *App) RestoreWorkflowVersion(workflowID string, version int) error {
-	return a.workflowManager.RestoreWorkflowVersion(a.ctx, workflowID, version)
+	return a.core.GetWorkflowManager().RestoreWorkflowVersion(a.ctx, workflowID, version)
 }
 
 // GetWorkflowExecutionResult gets the execution result of a workflow
 func (a *App) GetWorkflowExecutionResult(executionID string) (*agent.WorkflowExecutionResult, error) {
-	return a.workflowManager.GetWorkflowExecutionResult(a.ctx, executionID)
+	return a.core.GetWorkflowManager().GetWorkflowExecutionResult(a.ctx, executionID)
 }
 
 // GetWorkflowExecutionResults gets all execution results for a workflow
 func (a *App) GetWorkflowExecutionResults(workflowID string) ([]*agent.WorkflowExecutionResult, error) {
-	return a.workflowManager.GetWorkflowExecutionResults(a.ctx, workflowID)
+	return a.core.GetWorkflowManager().GetWorkflowExecutionResults(a.ctx, workflowID)
 }
 
 // ===== 技能管理 API =====
 
 // GetSkills returns all skills
 func (a *App) GetSkills() (map[string]agent.SkillMetadata, error) {
-	skills := a.skillLibrary.GetAllSkills(a.ctx)
+	skills := a.core.GetSkillLibrary().GetAllSkills(a.ctx)
 	result := make(map[string]agent.SkillMetadata)
 
 	for name, skill := range skills {
@@ -221,7 +189,7 @@ func (a *App) GetSkills() (map[string]agent.SkillMetadata, error) {
 
 // GetSkill returns a skill by name
 func (a *App) GetSkill(name string) (agent.SkillMetadata, error) {
-	skill, found := a.skillLibrary.GetSkill(a.ctx, name)
+	skill, found := a.core.GetSkillLibrary().GetSkill(a.ctx, name)
 	if !found {
 		return agent.SkillMetadata{}, fmt.Errorf("skill not found: %s", name)
 	}
@@ -231,14 +199,14 @@ func (a *App) GetSkill(name string) (agent.SkillMetadata, error) {
 
 // DeleteSkill deletes a skill
 func (a *App) DeleteSkill(name string) error {
-	return a.skillLibrary.UnregisterSkill(a.ctx, name)
+	return a.core.GetSkillLibrary().UnregisterSkill(a.ctx, name)
 }
 
 // ===== 配置管理 API =====
 
 // GetConfig returns the current configuration
 func (a *App) GetConfig() (*agent.HostConfig, error) {
-	return a.host.Config(), nil
+	return a.core.GetHost().Config(), nil
 }
 
 // UpdateConfig updates the configuration
@@ -259,62 +227,62 @@ func (a *App) ReloadConfig() error {
 
 // ListFiles lists files in a directory
 func (a *App) ListFiles(path string) ([]*agent.FileInfo, error) {
-	return a.fileExplorer.ListFiles(a.ctx, path)
+	return a.core.GetFileExplorer().ListFiles(a.ctx, path)
 }
 
 // CreateFile creates a new file
 func (a *App) CreateFile(path string, content string) error {
-	return a.fileExplorer.CreateFile(a.ctx, path, content)
+	return a.core.GetFileExplorer().CreateFile(a.ctx, path, content)
 }
 
 // ReadFile reads a file's content
 func (a *App) ReadFile(path string) (string, error) {
-	return a.fileExplorer.ReadFile(a.ctx, path)
+	return a.core.GetFileExplorer().ReadFile(a.ctx, path)
 }
 
 // WriteFile writes to a file
 func (a *App) WriteFile(path string, content string) error {
-	return a.fileExplorer.WriteFile(a.ctx, path, content)
+	return a.core.GetFileExplorer().WriteFile(a.ctx, path, content)
 }
 
 // DeleteFile deletes a file
 func (a *App) DeleteFile(path string) error {
-	return a.fileExplorer.DeleteFile(a.ctx, path)
+	return a.core.GetFileExplorer().DeleteFile(a.ctx, path)
 }
 
 // CreateDirectory creates a new directory
 func (a *App) CreateDirectory(path string) error {
-	return a.fileExplorer.CreateDirectory(a.ctx, path)
+	return a.core.GetFileExplorer().CreateDirectory(a.ctx, path)
 }
 
 // DeleteDirectory deletes a directory
 func (a *App) DeleteDirectory(path string) error {
-	return a.fileExplorer.DeleteDirectory(a.ctx, path)
+	return a.core.GetFileExplorer().DeleteDirectory(a.ctx, path)
 }
 
 // MoveFile moves a file or directory
 func (a *App) MoveFile(src string, dst string) error {
-	return a.fileExplorer.MoveFile(a.ctx, src, dst)
+	return a.core.GetFileExplorer().MoveFile(a.ctx, src, dst)
 }
 
 // CopyFile copies a file or directory
 func (a *App) CopyFile(src string, dst string) error {
-	return a.fileExplorer.CopyFile(a.ctx, src, dst)
+	return a.core.GetFileExplorer().CopyFile(a.ctx, src, dst)
 }
 
 // GetFileInfo returns information about a file or directory
 func (a *App) GetFileInfo(path string) (*agent.FileInfo, error) {
-	return a.fileExplorer.GetFileInfo(a.ctx, path)
+	return a.core.GetFileExplorer().GetFileInfo(a.ctx, path)
 }
 
 // UploadFile uploads a file to the specified path
 func (a *App) UploadFile(path string, content []byte) error {
-	return a.fileExplorer.UploadFile(a.ctx, path, content)
+	return a.core.GetFileExplorer().UploadFile(a.ctx, path, content)
 }
 
 // DownloadFile downloads a file from the specified path
 func (a *App) DownloadFile(path string) ([]byte, error) {
-	return a.fileExplorer.DownloadFile(a.ctx, path)
+	return a.core.GetFileExplorer().DownloadFile(a.ctx, path)
 }
 
 // ===== 增强技能系统 API =====
@@ -328,12 +296,12 @@ type SkillSystemInfo struct {
 
 // GetSkillSystemInfo returns basic information about the skill system
 func (a *App) GetSkillSystemInfo() (*SkillSystemInfo, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return &SkillSystemInfo{Initialized: false}, nil
 	}
 
 	// Get total skill count
-	entries := a.skillSystem.Registry().ListAll()
+	entries := a.core.GetSkillSystem().Registry().ListAll()
 
 	return &SkillSystemInfo{
 		Initialized: true,
@@ -357,11 +325,11 @@ type SkillListItem struct {
 
 // ListRegisteredSkills lists all registered skills
 func (a *App) ListRegisteredSkills() ([]*SkillListItem, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
-	entries := a.skillSystem.Registry().ListAll()
+	entries := a.core.GetSkillSystem().Registry().ListAll()
 	result := make([]*SkillListItem, 0, len(entries))
 
 	for _, entry := range entries {
@@ -401,11 +369,11 @@ type SkillDefinitionInfo struct {
 
 // ListSkillDefinitions lists all skill definitions
 func (a *App) ListSkillDefinitions() ([]*SkillDefinitionInfo, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
-	definitions := a.skillSystem.DefinitionManager().List()
+	definitions := a.core.GetSkillSystem().DefinitionManager().List()
 	result := make([]*SkillDefinitionInfo, 0, len(definitions))
 
 	for _, def := range definitions {
@@ -443,11 +411,11 @@ func (a *App) ListSkillDefinitions() ([]*SkillDefinitionInfo, error) {
 
 // GetSkillDefinition returns a skill definition by ID
 func (a *App) GetSkillDefinition(skillID string) (*SkillDefinitionInfo, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
-	definition, err := a.skillSystem.DefinitionManager().Load(skillID)
+	definition, err := a.core.GetSkillSystem().DefinitionManager().Load(skillID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load skill definition: %w", err)
 	}
@@ -505,7 +473,7 @@ type ExecuteSkillOutput struct {
 
 // ExecuteSkillByName executes a skill by name
 func (a *App) ExecuteSkillByName(input *ExecuteSkillInput) (*ExecuteSkillOutput, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return &ExecuteSkillOutput{
 			Success: false,
 			Error:   "skill system not initialized",
@@ -528,7 +496,7 @@ func (a *App) ExecuteSkillByName(input *ExecuteSkillInput) (*ExecuteSkillOutput,
 	}
 
 	// Execute the skill
-	result, err := a.skillSystem.ExecuteSkill(a.ctx, input.SkillName, input.Input, execCtx)
+	result, err := a.core.GetSkillSystem().ExecuteSkill(a.ctx, input.SkillName, input.Input, execCtx)
 	if err != nil {
 		return &ExecuteSkillOutput{
 			Success: false,
@@ -556,11 +524,11 @@ type SkillSystemStats struct {
 
 // GetSkillSystemStats returns statistics about the skill system
 func (a *App) GetSkillSystemStats() (*SkillSystemStats, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
-	stats := a.skillSystem.Registry().GetStats()
+	stats := a.core.GetSkillSystem().Registry().GetStats()
 	totalSkills := int64(0)
 	totalUses := int64(0)
 
@@ -596,12 +564,12 @@ type CacheStats struct {
 
 // GetCacheStats returns cache statistics from the skill system
 func (a *App) GetCacheStats() (*CacheStats, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	// Get stats from the skill registry
-	statsMap := a.skillSystem.Registry().GetStats()
+	statsMap := a.core.GetSkillSystem().Registry().GetStats()
 
 	// Extract statistics from map
 	stats := &CacheStats{}
@@ -657,12 +625,12 @@ type PoolStats struct {
 
 // GetPoolStats returns pool statistics from the skill system
 func (a *App) GetPoolStats() (*PoolStats, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	// Get stats from the skill registry
-	statsMap := a.skillSystem.Registry().GetStats()
+	statsMap := a.core.GetSkillSystem().Registry().GetStats()
 
 	stats := &PoolStats{}
 
@@ -711,7 +679,7 @@ func (a *App) GetPoolStats() (*PoolStats, error) {
 
 // ReloadSkillDefinitions reloads skill definitions
 func (a *App) ReloadSkillDefinitions() error {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return fmt.Errorf("skill system not initialized")
 	}
 
@@ -722,7 +690,7 @@ func (a *App) ReloadSkillDefinitions() error {
 
 // ClearCache clears the skill cache
 func (a *App) ClearCache() error {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return fmt.Errorf("skill system not initialized")
 	}
 
@@ -733,29 +701,29 @@ func (a *App) ClearCache() error {
 
 // EnableSkill enables a skill
 func (a *App) EnableSkill(skillID string) error {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return fmt.Errorf("skill system not initialized")
 	}
 
-	return a.skillSystem.Registry().EnableSkill(skillID)
+	return a.core.GetSkillSystem().Registry().EnableSkill(skillID)
 }
 
 // DisableSkill disables a skill
 func (a *App) DisableSkill(skillID string) error {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return fmt.Errorf("skill system not initialized")
 	}
 
-	return a.skillSystem.Registry().DisableSkill(skillID)
+	return a.core.GetSkillSystem().Registry().DisableSkill(skillID)
 }
 
 // ToggleSkill toggles a skill's enabled status
 func (a *App) ToggleSkill(skillID string) (bool, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return false, fmt.Errorf("skill system not initialized")
 	}
 
-	return a.skillSystem.Registry().ToggleSkill(skillID)
+	return a.core.GetSkillSystem().Registry().ToggleSkill(skillID)
 }
 
 // ===== 技能导入 API =====
@@ -791,14 +759,14 @@ type ImportSkillResult struct {
 
 // ImportSkillFromFile imports a skill from a file
 func (a *App) ImportSkillFromFile(data []byte, format string, options ImportSkillOptions) (*ImportSkillResult, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	baseDir := a.getSkillSystemBaseDir()
 	importer := skills.NewSkillImporter(
-		a.skillSystem.Registry(),
-		a.skillSystem.DefinitionManager(),
+		a.core.GetSkillSystem().Registry(),
+		a.core.GetSkillSystem().DefinitionManager(),
 		baseDir,
 	)
 
@@ -828,14 +796,14 @@ func (a *App) ImportSkillFromFile(data []byte, format string, options ImportSkil
 
 // ImportSkillFromURL imports a skill from a URL
 func (a *App) ImportSkillFromURL(url string, options ImportSkillOptions) (*ImportSkillResult, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	baseDir := a.getSkillSystemBaseDir()
 	importer := skills.NewSkillImporter(
-		a.skillSystem.Registry(),
-		a.skillSystem.DefinitionManager(),
+		a.core.GetSkillSystem().Registry(),
+		a.core.GetSkillSystem().DefinitionManager(),
 		baseDir,
 	)
 
@@ -865,14 +833,14 @@ func (a *App) ImportSkillFromURL(url string, options ImportSkillOptions) (*Impor
 
 // ImportSkillFromContent imports a skill from content string
 func (a *App) ImportSkillFromContent(content string, options ImportSkillOptions) (*ImportSkillResult, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	baseDir := a.getSkillSystemBaseDir()
 	importer := skills.NewSkillImporter(
-		a.skillSystem.Registry(),
-		a.skillSystem.DefinitionManager(),
+		a.core.GetSkillSystem().Registry(),
+		a.core.GetSkillSystem().DefinitionManager(),
 		baseDir,
 	)
 
@@ -902,14 +870,14 @@ func (a *App) ImportSkillFromContent(content string, options ImportSkillOptions)
 
 // ValidateSkillFile validates a skill file without importing it
 func (a *App) ValidateSkillFile(content string) (map[string]interface{}, error) {
-	if a.skillSystem == nil {
+	if a.core.GetSkillSystem() == nil {
 		return nil, fmt.Errorf("skill system not initialized")
 	}
 
 	baseDir := a.getSkillSystemBaseDir()
 	importer := skills.NewSkillImporter(
-		a.skillSystem.Registry(),
-		a.skillSystem.DefinitionManager(),
+		a.core.GetSkillSystem().Registry(),
+		a.core.GetSkillSystem().DefinitionManager(),
 		baseDir,
 	)
 

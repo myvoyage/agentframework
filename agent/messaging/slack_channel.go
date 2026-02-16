@@ -21,6 +21,7 @@ package messaging
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
@@ -216,7 +217,8 @@ func (ch *SlackChannel) HealthCheck(ctx context.Context) error {
 
 // GetStats 获取统计信息
 func (ch *SlackChannel) GetStats() *ChannelStats {
-	return ch.stats.GetSnapshot()
+	snapshot := ch.stats.GetSnapshot()
+	return &snapshot
 }
 
 // GetClient 获取 Slack 客户端实例（用于高级用法）
@@ -260,6 +262,18 @@ func (ch *SlackChannel) handleMessage(ev *slack.MessageEvent) {
 		return
 	}
 
+	// 转换时间戳（Slack 的 Timestamp 是字符串类型）
+	var timestamp time.Time
+	if ev.Timestamp != "" {
+		if ts, err := strconv.ParseInt(ev.Timestamp, 10, 64); err == nil {
+			timestamp = time.Unix(ts, 0)
+		} else {
+			timestamp = time.Now()
+		}
+	} else {
+		timestamp = time.Now()
+	}
+
 	// 转换为 ChannelMessage
 	channelMsg := &ChannelMessage{
 		ID:        generateMessageID(),
@@ -267,7 +281,7 @@ func (ch *SlackChannel) handleMessage(ev *slack.MessageEvent) {
 		Type:      ChannelTypeSlack,
 		Content:   ev.Text,
 		Metadata:  make(map[string]interface{}),
-		Timestamp: time.Unix(ev.Timestamp, 0),
+		Timestamp: timestamp,
 		Source:    user.Name,
 		Target:    ev.Channel,
 		ReplyTo:   "",

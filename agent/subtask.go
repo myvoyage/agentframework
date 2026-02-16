@@ -343,15 +343,17 @@ func SubTaskFromJSON(jsonStr string) (*SubTask, error) {
 
 // TaskCollection 任务集合，管理多个子任务
 type TaskCollection struct {
-	tasks  map[string]*SubTask
-	rootID string
-	mu     sync.RWMutex
+	tasks           map[string]*SubTask
+	rootID          string
+	mu              sync.RWMutex
+	ScheduledTasks  map[string]*AITask // Scheduled AI tasks
 }
 
 // NewTaskCollection 创建任务集合
 func NewTaskCollection() *TaskCollection {
 	return &TaskCollection{
-		tasks: make(map[string]*SubTask),
+		tasks:          make(map[string]*SubTask),
+		ScheduledTasks: make(map[string]*AITask),
 	}
 }
 

@@ -237,7 +237,8 @@ func (ch *TelegramChannel) HealthCheck(ctx context.Context) error {
 
 // GetStats 获取统计信息
 func (ch *TelegramChannel) GetStats() *ChannelStats {
-	return ch.stats.GetSnapshot()
+	snapshot := ch.stats.GetSnapshot()
+	return &snapshot
 }
 
 // GetBot 获取 Telegram Bot 实例（用于高级用法）

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"AgentFramework/pkg/beads/hardware"
 	"github.com/goburrow/modbus"
 )
 
@@ -32,9 +33,14 @@ func NewModbusDriver(config *ModbusDeviceConfig) *ModbusDriver {
 }
 
 // Connect establishes a connection to the Modbus device.
-func (d *ModbusDriver) Connect(ctx context.Context) error {
+func (d *ModbusDriver) Connect(ctx context.Context, config interface{}) error {
 	if d.client != nil {
 		return errors.New("already connected")
+	}
+
+	// Use provided config if available
+	if cfg, ok := config.(*ModbusDeviceConfig); ok && cfg != nil {
+		d.config = cfg
 	}
 
 	// Create TCP client
@@ -331,7 +337,7 @@ func (d *ModbusDriver) GetStatus(ctx context.Context) (map[string]interface{}, e
 }
 
 // SubscribeEvents subscribes to Modbus device events (not implemented in basic version).
-func (d *ModbusDriver) SubscribeEvents(ctx context.Context, eventTypes []string, handler interface{}) error {
+func (d *ModbusDriver) SubscribeEvents(ctx context.Context, eventTypes []string, handler hardware.EventHandler) error {
 	return errors.New("not implemented")
 }
 

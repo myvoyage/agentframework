@@ -79,11 +79,18 @@ AgentFramework 是一个高性能、企业级的 AI 代理框架，为构建智�
 | **🔒 高安全性** | 多层沙箱系统，安全的代码执行和资源访问 |
 | **📈 可观测性** | 内置 OpenTelemetry，全面的性能指标和追踪 |
 
+✅ 核心优势
+架构优秀: 清晰的分层架构（表现层→应用层→领域层→基础设施层）
+设计模式完善: 工厂、策略、装饰器、观察者、状态机等 8+ 种模式
+技术栈现代: Go 1.24 + Vue 3 + TypeScript + OpenTelemetry + Prometheus
+功能丰富: 10+ Agent 类型、44+ MCP 工具、多种存储后端
+企业级特性: 监控、缓存、安全沙箱、分布式追踪
+
 ### 技术指标
 
 | 指标 | 数值 |
 |------|------|
-| **代码规模** | 约 2900+ Go 文件，50 万行代码 |
+| **代码规模** | 约 430 个 Go 文件，65,000+ 行代码 |
 | **测试覆盖率** | 80%+ |
 | **MCP 工具** | 44 个原生实现 |
 | **支持模型** | OpenAI、Ollama、LM Studio、vLLM |
@@ -215,7 +222,7 @@ AgentFramework 是一个高性能、企业级的 AI 代理框架，为构建智�
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/your-org/agentframework.git
+git clone https://github.com/myvoyage/agentframework.git
 cd agentframework
 
 # 2. 下载依赖
@@ -548,9 +555,9 @@ go test -bench=. -benchmem ./...
 
 - **官方网站**: https://agentframework.dev
 - **文档**: https://docs.agentframework.dev
-- **GitHub**: https://github.com/your-org/agentframework
-- **问题反馈**: [GitHub Issues](https://github.com/your-org/agentframework/issues)
-- **讨论**: [GitHub Discussions](https://github.com/your-org/agentframework/discussions)
+- **GitHub**: https://github.com/myvoyage/agentframework
+- **问题反馈**: [GitHub Issues](https://github.com/myvoyage/agentframework/issues)
+- **讨论**: [GitHub Discussions](https://github.com/myvoyage/agentframework/discussions)
 
 ---
 

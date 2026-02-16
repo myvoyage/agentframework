@@ -42,7 +42,7 @@ import (
     "log"
 
     "github.com/cloudwego/eino/components/model"
-    "your-org/agentframework/agent/computer_use"
+    "myvoyage/agentframework/agent/computer_use"
 )
 
 func main() {

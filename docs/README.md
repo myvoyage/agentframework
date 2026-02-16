@@ -1,14 +1,24 @@
 # AgentFramework 文档导航
 
 > **AgentFramework 文档中心**
-> **版本**: v1.0.0
-> **最后更新**: 2025-02-15
+> **版本**: v2.0.0
+> **最后更新**: 2026-02-15
 
 ---
 
 ## 🎯 欢迎使用 AgentFramework 文档！
 
-这里提供 AgentFramework 的完整文档索引，帮助您快速找到所需信息。
+AgentFramework 是一个**企业级、高性能 AI 代理框架**，支持 12+ 种 Agent 类型、6 种工作流、44+ MCP 工具。
+
+### 核心特性
+
+| 特性 | 说明 |
+|------|------|
+| 🚀 **高性能** | Go 语言原生并发，支持 1000+ 并发任务 |
+| 🔧 **高可用** | 检查点恢复、错误重试、健康检查 |
+| 🔌 **高扩展** | 插件化架构、技能系统、MCP 协议 |
+| 🔒 **高安全** | 多层沙箱、权限控制、审计日志 |
+| 📝 **易使用** | YAML 配置、CLI 工具、桌面应用 |
 
 ### 📚 文档分类
 
@@ -303,8 +313,8 @@ collaboration/
 
 - 📮 [官方网站](https://agentframework.dev)
 - 📘 [文档网站](https://docs.agentframework.dev)
-- 📧 [问题反馈](https://github.com/your-org/agentframework/issues)
-- 💬 [讨论区](https://github.com/your-org/agentframework/discussions)
+- 📧 [问题反馈](https://github.com/myvoyage/agentframework/issues)
+- 💬 [讨论区](https://github.com/myvoyage/agentframework/discussions)
 
 ---
 

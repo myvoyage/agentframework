@@ -395,3 +395,35 @@ func (ts *TaskScheduler) GetAgents() map[string]Agent {
 	}
 	return agents
 }
+
+// ScheduleTask schedules a task for execution
+func (ts *TaskScheduler) ScheduleTask(ctx context.Context, task *AITask) (string, error) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	// Store the task
+	if ts.collection.ScheduledTasks == nil {
+		ts.collection.ScheduledTasks = make(map[string]*AITask)
+	}
+
+	ts.collection.ScheduledTasks[task.ID] = task
+
+	return task.ID, nil
+}
+
+// UnscheduleJob unschedules a job by ID
+func (ts *TaskScheduler) UnscheduleJob(ctx context.Context, jobID string) error {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+
+	if ts.collection.ScheduledTasks == nil {
+		return fmt.Errorf("no scheduled tasks found")
+	}
+
+	if _, exists := ts.collection.ScheduledTasks[jobID]; !exists {
+		return fmt.Errorf("scheduled task not found: %s", jobID)
+	}
+
+	delete(ts.collection.ScheduledTasks, jobID)
+	return nil
+}

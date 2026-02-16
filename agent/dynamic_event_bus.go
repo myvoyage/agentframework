@@ -9,8 +9,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"AgentFramework/agent/errors"
 )
 
 // DynamicEventBusConfig contains configuration for dynamic event bus

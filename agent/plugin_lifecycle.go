@@ -30,8 +30,9 @@ const (
 	PluginStateStopped    PluginState = "stopped"
 	PluginStateRunning    PluginState = "running"
 	PluginStateRestarting PluginState = "restarting"
-	PluginStateStopping  PluginState = "stopping"
+	PluginStateStopping   PluginState = "stopping"
 	PluginStateError      PluginState = "error"
+	PluginStateUnknown    PluginState = "unknown"
 )
 
 // PluginMetrics tracks execution metrics for a plugin

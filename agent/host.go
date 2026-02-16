@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
+	"github.com/cloudwego/eino/schema"
 
 	"AgentFramework/agent/messaging"
 	"AgentFramework/agent/scheduler"
@@ -65,6 +66,11 @@ type Host struct {
 	middlewares map[string]AgentMiddleware
 
 	service *AgentService
+}
+
+// GetModelFactory returns the model factory for host
+func (h *Host) GetModelFactory() ModelFactory {
+	return h.modelFactory
 }
 
 // NewHost creates a new Host instance with the given configuration and options
@@ -185,25 +191,25 @@ func NewHost(ctx context.Context, cfg *HostConfig, mf ModelFactory, tr map[strin
 使用要点列表或段落形式，语言简洁明了。不要使用过于正式的语言，确保摘要易于理解。`
 
 			// 构建优化的摘要请求
-			messages := []interface{}{
-				map[string]interface{}{
-					"role":    "system",
-					"content": systemPrompt,
+			messages := []*schema.Message{
+				{
+					Role:    schema.System,
+					Content: systemPrompt,
 				},
-				map[string]interface{}{
-					"role":    "user",
-					"content": fmt.Sprintf("请总结以下内容，使用不超过 %d 个 token：\n\n%s", maxTokens, prompt),
+				{
+					Role:    schema.User,
+					Content: fmt.Sprintf("请总结以下内容，使用不超过 %d 个 token：\n\n%s", maxTokens, prompt),
 				},
 			}
 
 			// 设置合理的参数，提高效率和质量
-			result, err := model.Chat(ctx, messages, maxTokens, 0.3) // 使用较低的温度提高一致性
+			resultMsg, err := model.Generate(ctx, messages)
 			if err != nil {
 				return "", fmt.Errorf("failed to generate summary: %w", err)
 			}
 
 			// 清理和优化结果
-			summary := strings.TrimSpace(result)
+			summary := strings.TrimSpace(resultMsg.Content)
 			if summary == "" {
 				return "", fmt.Errorf("empty summary generated")
 			}
@@ -283,8 +289,32 @@ func NewHost(ctx context.Context, cfg *HostConfig, mf ModelFactory, tr map[strin
 		}
 	}
 
-t// Start async task manager if configured	if h.taskManager != nil {		if tm, ok := h.taskManager.(interface{ Start(context.Context) error }); ok {			// TaskManager 在 Start 中已经启动，这里只需要检查			_ = tm		}	}
-// Start scheduler if configured	if h.scheduler != nil {		if sched, ok := h.scheduler.(interface{ Start(context.Context) error }); ok {			if err := sched.Start(ctx); err != nil {				return nil, fmt.Errorf("failed to start scheduler: %w", err)			}		}	}	// Start heartbeat service if configured	if h.heartbeat != nil {		if hb, ok := h.heartbeat.(interface{ Start(context.Context) error }); ok {			if err := hb.Start(ctx); err != nil {				return nil, fmt.Errorf("failed to start heartbeat service: %w", err)			}		}	}
+	// Start async task manager if configured
+	if h.taskManager != nil {
+		if tm, ok := h.taskManager.(interface{ Start(context.Context) error }); ok {
+			// TaskManager 在 Start 中已经启动，这里只需要检查
+			_ = tm
+		}
+	}
+
+	// Start scheduler if configured
+	if h.scheduler != nil {
+		if sched, ok := h.scheduler.(interface{ Start(context.Context) error }); ok {
+			if err := sched.Start(ctx); err != nil {
+				return nil, fmt.Errorf("failed to start scheduler: %w", err)
+			}
+		}
+	}
+
+	// Start heartbeat service if configured
+	if h.heartbeat != nil {
+		if hb, ok := h.heartbeat.(interface{ Start(context.Context) error }); ok {
+			if err := hb.Start(ctx); err != nil {
+				return nil, fmt.Errorf("failed to start heartbeat service: %w", err)
+			}
+		}
+	}
+
 	return h, nil
 }
 
@@ -498,7 +528,6 @@ func (hm *HostManager) ListAgents(appName string) []string {
 	}
 	return host.ListAgents()
 }
-}
 
 // ===== Scheduler 和 Heartbeat Getter 方法 =====
 
@@ -557,7 +586,6 @@ func (h *Host) SendHeartbeat(ctx context.Context) error {
 	}
 
 	return fmt.Errorf("heartbeat service does not support SendBeat")
-}
 }
 
 // ===== TokenCompressor Getter 方法 =====
@@ -712,7 +740,7 @@ func (h *Host) ListAsyncTasks(opts ...interface{}) ([]async.AsyncTask, error) {
 	}
 
 	if tm, ok := h.taskManager.(interface {
-		List(...async.TaskListOption) []async.AsyncTask
+		List(...async.TaskListOption) ([]async.AsyncTask, error)
 	}); ok {
 		return tm.List(asyncOpts...)
 	}

@@ -164,9 +164,7 @@ func TestInternalChannel_BasicOperations(t *testing.T) {
 	}
 
 	// 测试订阅
-	messageReceived := false
 	handler := func(ctx context.Context, msg *ChannelMessage) error {
-		messageReceived = true
 		return nil
 	}
 

@@ -45,7 +45,7 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-org/agentframework.git
+git clone https://github.com/myvoyage/agentframework.git
 cd agentframework
 
 # 2. 安装 Wails CLI

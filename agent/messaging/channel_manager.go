@@ -22,7 +22,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 )
 
 // EventBus 事件总线接口（解耦循环依赖）

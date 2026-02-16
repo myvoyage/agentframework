@@ -30,6 +30,96 @@ export namespace agent {
 	        this.EnableTrimming = source["EnableTrimming"];
 	    }
 	}
+	export class AsyncTaskSpec {
+	    Enabled: boolean;
+	    MaxTasks: number;
+	    TaskTimeout: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AsyncTaskSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.MaxTasks = source["MaxTasks"];
+	        this.TaskTimeout = source["TaskTimeout"];
+	    }
+	}
+	export class ChannelConfigSpec {
+	    Type: string;
+	    Enabled: boolean;
+	    Config: Record<string, any>;
+	    BufferSize: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelConfigSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Type = source["Type"];
+	        this.Enabled = source["Enabled"];
+	        this.Config = source["Config"];
+	        this.BufferSize = source["BufferSize"];
+	    }
+	}
+	export class OpenVikingStoreSpec {
+	    Endpoint: string;
+	    APIKey: string;
+	    Workspace: string;
+	    Timeout: number;
+	    MaxRetries: number;
+	    AutoSync: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenVikingStoreSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Endpoint = source["Endpoint"];
+	        this.APIKey = source["APIKey"];
+	        this.Workspace = source["Workspace"];
+	        this.Timeout = source["Timeout"];
+	        this.MaxRetries = source["MaxRetries"];
+	        this.AutoSync = source["AutoSync"];
+	    }
+	}
+	export class ContextStoreSpec {
+	    Enabled: boolean;
+	    Type: string;
+	    OpenViking: OpenVikingStoreSpec;
+	
+	    static createFrom(source: any = {}) {
+	        return new ContextStoreSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.Type = source["Type"];
+	        this.OpenViking = this.convertValues(source["OpenViking"], OpenVikingStoreSpec);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class FileInfo {
 	    name: string;
 	    path: string;
@@ -54,6 +144,112 @@ export namespace agent {
 	        this.modified = this.convertValues(source["modified"], null);
 	        this.created = this.convertValues(source["created"], null);
 	        this.mode = source["mode"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class HeartbeatSpec {
+	    Enabled: boolean;
+	    Interval: number;
+	    Timeout: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new HeartbeatSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.Interval = source["Interval"];
+	        this.Timeout = source["Timeout"];
+	    }
+	}
+	export class TokenCompressionSpec {
+	    Enabled: boolean;
+	    Strategy: string;
+	    TargetTokens: number;
+	    MinTokens: number;
+	    MaxTokens: number;
+	    PreserveSystemMessages: boolean;
+	    SummaryModelName: string;
+	    SummaryMaxTokens: number;
+	    Temperature: number;
+	    CheckInterval: number;
+	    SessionTokenLimit: number;
+	    DailyTokenLimit: number;
+	    LongTermTokenLimit: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TokenCompressionSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.Strategy = source["Strategy"];
+	        this.TargetTokens = source["TargetTokens"];
+	        this.MinTokens = source["MinTokens"];
+	        this.MaxTokens = source["MaxTokens"];
+	        this.PreserveSystemMessages = source["PreserveSystemMessages"];
+	        this.SummaryModelName = source["SummaryModelName"];
+	        this.SummaryMaxTokens = source["SummaryMaxTokens"];
+	        this.Temperature = source["Temperature"];
+	        this.CheckInterval = source["CheckInterval"];
+	        this.SessionTokenLimit = source["SessionTokenLimit"];
+	        this.DailyTokenLimit = source["DailyTokenLimit"];
+	        this.LongTermTokenLimit = source["LongTermTokenLimit"];
+	    }
+	}
+	export class SchedulerSpec {
+	    Enabled: boolean;
+	    Timezone: string;
+	    MaxJobs: number;
+	    JobTimeout: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new SchedulerSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.Timezone = source["Timezone"];
+	        this.MaxJobs = source["MaxJobs"];
+	        this.JobTimeout = source["JobTimeout"];
+	    }
+	}
+	export class MessagingConfig {
+	    Enabled: boolean;
+	    EnableMetrics: boolean;
+	    Channels: Record<string, ChannelConfigSpec>;
+	    DefaultChannel: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessagingConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Enabled = source["Enabled"];
+	        this.EnableMetrics = source["EnableMetrics"];
+	        this.Channels = this.convertValues(source["Channels"], ChannelConfigSpec, true);
+	        this.DefaultChannel = source["DefaultChannel"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -305,6 +501,12 @@ export namespace agent {
 	    Agents: AgentSpec[];
 	    Workflows: WorkflowSpec[];
 	    SkillSystemDir: string;
+	    ContextStore: ContextStoreSpec;
+	    Messaging?: MessagingConfig;
+	    Scheduler?: SchedulerSpec;
+	    Heartbeat?: HeartbeatSpec;
+	    AsyncTask?: AsyncTaskSpec;
+	    TokenCompression?: TokenCompressionSpec;
 	    Extensions: Record<string, any>;
 	
 	    static createFrom(source: any = {}) {
@@ -322,6 +524,12 @@ export namespace agent {
 	        this.Agents = this.convertValues(source["Agents"], AgentSpec);
 	        this.Workflows = this.convertValues(source["Workflows"], WorkflowSpec);
 	        this.SkillSystemDir = source["SkillSystemDir"];
+	        this.ContextStore = this.convertValues(source["ContextStore"], ContextStoreSpec);
+	        this.Messaging = this.convertValues(source["Messaging"], MessagingConfig);
+	        this.Scheduler = this.convertValues(source["Scheduler"], SchedulerSpec);
+	        this.Heartbeat = this.convertValues(source["Heartbeat"], HeartbeatSpec);
+	        this.AsyncTask = this.convertValues(source["AsyncTask"], AsyncTaskSpec);
+	        this.TokenCompression = this.convertValues(source["TokenCompression"], TokenCompressionSpec);
 	        this.Extensions = source["Extensions"];
 	    }
 	
@@ -343,6 +551,7 @@ export namespace agent {
 		    return a;
 		}
 	}
+	
 	
 	
 	
@@ -394,6 +603,8 @@ export namespace agent {
 		}
 	}
 	
+	
+	
 	export class SkillMetadata {
 	    name: string;
 	    version: string;
@@ -428,6 +639,7 @@ export namespace agent {
 	        this.config = source["config"];
 	    }
 	}
+	
 	
 	export class WorkflowExecutionResult {
 	    workflow_id: string;

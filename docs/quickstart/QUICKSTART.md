@@ -46,7 +46,7 @@
 #### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/your-org/agentframework.git
+git clone https://github.com/myvoyage/agentframework.git
 cd agentframework
 ```
 
@@ -81,7 +81,7 @@ wails build
 
 #### 下载最新版本
 
-访问 [Releases 页面](https://github.com/your-org/agentframework/releases) 下载适合您系统的二进制文件。
+访问 [Releases 页面](https://github.com/myvoyage/agentframework/releases) 下载适合您系统的二进制文件。
 
 #### 解压并运行
 
@@ -287,10 +287,10 @@ Skill 是可插拔的功能单元，扩展 Agent 的能力。
 
 ### 社区资源
 
-- 💬 [GitHub Discussions](https://github.com/your-org/agentframework/discussions)
+- 💬 [GitHub Discussions](https://github.com/myvoyage/agentframework/discussions)
 - 📖 [文档网站](https://docs.agentframework.dev)
-- 🐛 [问题反馈](https://github.com/your-org/agentframework/issues)
+- 🐛 [问题反馈](https://github.com/myvoyage/agentframework/issues)
 
 ---
 
-**遇到问题？** 请查看 [故障排查指南](../operation/TROUBLESHOOTING.md) 或 [提交 Issue](https://github.com/your-org/agentframework/issues/new)
+**遇到问题？** 请查看 [故障排查指南](../operation/TROUBLESHOOTING.md) 或 [提交 Issue](https://github.com/myvoyage/agentframework/issues/new)

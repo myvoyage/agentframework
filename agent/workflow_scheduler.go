@@ -13,6 +13,25 @@ import (
 	"github.com/google/uuid"
 )
 
+// AITask represents an AI task that can be scheduled
+type AITask struct {
+	ID          string
+	Name        string
+	CronExpr    string
+	Description string
+	Handler     func(ctx context.Context) error
+}
+
+// NewAITask creates a new AITask
+func NewAITask(name, cronExpr, description string) *AITask {
+	return &AITask{
+		ID:          uuid.New().String(),
+		Name:        name,
+		CronExpr:    cronExpr,
+		Description: description,
+	}
+}
+
 // WorkflowSchedulerManager 管理工作流和调度器的集成
 type WorkflowSchedulerManager struct {
 	workflowManager *WorkflowManager
@@ -101,7 +120,7 @@ func (m *WorkflowSchedulerManager) ScheduleWorkflow(ctx context.Context, workflo
 	}
 
 	// 创建调度任务
-	schedTask := AITask(
+	schedTask := NewAITask(
 		task.Name,
 		cronExpr,
 		fmt.Sprintf("Execute workflow: %s", workflowID),
@@ -170,7 +189,7 @@ func (m *WorkflowSchedulerManager) ListWorkflowTasks() []*WorkflowTask {
 // ExecuteWorkflowNow 立即执行工作流
 func (m *WorkflowSchedulerManager) ExecuteWorkflowNow(ctx context.Context, workflowID string, input string) (*WorkflowTaskResult, error) {
 	m.mu.Lock()
-	task, exists := m.workflowTasks[workflowID]
+	task, _ := m.workflowTasks[workflowID]
 	m.mu.Unlock()
 
 	result := &WorkflowTaskResult{
@@ -182,29 +201,40 @@ func (m *WorkflowSchedulerManager) ExecuteWorkflowNow(ctx context.Context, workf
 	}
 
 	// 执行工作流
-	workflow, err := m.workflowManager.LoadWorkflow(ctx, workflowID)
+	executionID, err := m.workflowManager.ExecuteWorkflow(ctx, workflowID, input)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = err.Error()
 		result.EndTime = time.Now()
 		result.Duration = time.Since(result.StartTime).Milliseconds()
+		result.ExecutionID = executionID
 		return result, nil
 	}
 
-	output, err := workflow.Run(ctx, input)
+	// 获取执行结果
+	executionResult, err := m.workflowManager.GetWorkflowExecutionResult(ctx, executionID)
+	if err != nil {
+		result.Status = "completed"
+		result.ExecutionID = executionID
+		result.EndTime = time.Now()
+		result.Duration = time.Since(result.StartTime).Milliseconds()
+		return result, nil
+	}
+
 	result.EndTime = time.Now()
 	result.Duration = time.Since(result.StartTime).Milliseconds()
 
-	if err != nil {
+	if executionResult.Status != "completed" {
 		result.Status = "failed"
-		result.Error = err.Error()
+		result.Error = executionResult.Error
+		result.ExecutionID = executionID
 
 		// 更新任务统计
 		m.mu.Lock()
 		if task != nil {
 			task.FailureCount++
 			task.LastStatus = "failure"
-			task.LastExecutionID = generateExecutionID()
+			task.LastExecutionID = executionID
 		}
 		m.mu.Unlock()
 
@@ -212,8 +242,8 @@ func (m *WorkflowSchedulerManager) ExecuteWorkflowNow(ctx context.Context, workf
 	}
 
 	result.Status = "completed"
-	result.ExecutionID = generateExecutionID()
-	result.Output = output.Content
+	result.ExecutionID = executionID
+	result.Output = executionResult.Output
 
 	// 更新任务统计
 	now := time.Now()
@@ -292,7 +322,7 @@ func (m *WorkflowSchedulerManager) UpdateWorkflowTask(ctx context.Context, workf
 	task.UpdatedAt = time.Now()
 
 	// 创建新调度任务
-	schedTask := AITask(
+	schedTask := NewAITask(
 		task.Name,
 		cronExpr,
 		fmt.Sprintf("Execute workflow: %s", workflowID),

@@ -7,40 +7,40 @@ import (
 	"sync"
 	"time"
 
-	"AgentFramework/pkg/beads/context"
+	beadscontext "AgentFramework/pkg/beads/context"
 	"AgentFramework/pkg/beads/stream"
 )
 
 // RealTimeAgent manages real-time data processing and event handling.
 type RealTimeAgent struct {
 	pipelines      map[string]*stream.DataPipeline
-	realTimeCtx    *context.RealTimeContext
-	subscribers    map[string][]EventHandler
-	eventBus       chan Event
+	realTimeCtx    *beadscontext.RealTimeContext
+	subscribers    map[string][]RealTimeEventHandler
+	eventBus       chan RealTimeEvent
 	mutex          sync.RWMutex
 	bufferSize     int
 	maxWorkers     int
 	enabledMetrics bool
 }
 
-// Event represents a real-time event.
-type Event struct {
+// RealTimeEvent represents a real-time event.
+type RealTimeEvent struct {
 	Type      string                 `json:"type"`
 	Timestamp time.Time              `json:"timestamp"`
 	Data      map[string]interface{} `json:"data"`
 	Source    string                 `json:"source"`
 }
 
-// EventHandler handles real-time events.
-type EventHandler func(ctx context.Context, event Event)
+// RealTimeEventHandler handles real-time events.
+type RealTimeEventHandler func(ctx context.Context, event RealTimeEvent)
 
 // NewRealTimeAgent creates a new RealTimeAgent instance.
 func NewRealTimeAgent(bufferSize, maxWorkers int, metricsEnabled bool) *RealTimeAgent {
 	return &RealTimeAgent{
 		pipelines:      make(map[string]*stream.DataPipeline),
-		realTimeCtx:    context.NewRealTimeContext(10000, 5*time.Minute),
-		subscribers:    make(map[string][]EventHandler),
-		eventBus:       make(chan Event, bufferSize),
+		realTimeCtx:    beadscontext.NewRealTimeContext(10000, 5*time.Minute),
+		subscribers:    make(map[string][]RealTimeEventHandler),
+		eventBus:       make(chan RealTimeEvent, bufferSize),
 		bufferSize:     bufferSize,
 		maxWorkers:     maxWorkers,
 		enabledMetrics: metricsEnabled,
@@ -106,7 +106,7 @@ func (a *RealTimeAgent) ProcessData(ctx context.Context, pipelineID string, data
 }
 
 // SubscribeEvents subscribes to events of a specific type.
-func (a *RealTimeAgent) SubscribeEvents(ctx context.Context, eventType string, handler EventHandler) error {
+func (a *RealTimeAgent) SubscribeEvents(ctx context.Context, eventType string, handler RealTimeEventHandler) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
@@ -116,7 +116,7 @@ func (a *RealTimeAgent) SubscribeEvents(ctx context.Context, eventType string, h
 }
 
 // UnsubscribeEvents unsubscribes from events.
-func (a *RealTimeAgent) UnsubscribeEvents(ctx context.Context, eventType string, handler EventHandler) error {
+func (a *RealTimeAgent) UnsubscribeEvents(ctx context.Context, eventType string, handler RealTimeEventHandler) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
@@ -138,7 +138,7 @@ func (a *RealTimeAgent) UnsubscribeEvents(ctx context.Context, eventType string,
 }
 
 // PublishEvent publishes an event to the event bus.
-func (a *RealTimeAgent) PublishEvent(ctx context.Context, event Event) error {
+func (a *RealTimeAgent) PublishEvent(ctx context.Context, event RealTimeEvent) error {
 	select {
 	case a.eventBus <- event:
 		return nil
@@ -160,7 +160,7 @@ func (a *RealTimeAgent) processEventBus(ctx context.Context) {
 }
 
 // notifySubscribers notifies subscribers of an event.
-func (a *RealTimeAgent) notifySubscribers(ctx context.Context, event Event) {
+func (a *RealTimeAgent) notifySubscribers(ctx context.Context, event RealTimeEvent) {
 	a.mutex.RLock()
 	handlers, exists := a.subscribers[event.Type]
 	a.mutex.RUnlock()
@@ -170,7 +170,7 @@ func (a *RealTimeAgent) notifySubscribers(ctx context.Context, event Event) {
 	}
 
 	for _, handler := range handlers {
-		go func(h EventHandler) {
+		go func(h RealTimeEventHandler) {
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Printf("Event handler panic: %v\n", r)
@@ -201,7 +201,7 @@ func (a *RealTimeAgent) consumePipelineOutput(ctx context.Context, pipelineID st
 			}
 
 			// Publish event
-			event := Event{
+			event := RealTimeEvent{
 				Type:      "pipeline_output",
 				Timestamp: time.Now(),
 				Data: map[string]interface{}{
@@ -248,17 +248,17 @@ func (a *RealTimeAgent) GetAllPipelineMetrics(ctx context.Context) (map[string]*
 }
 
 // GetRealTimeStats returns statistics about the real-time context.
-func (a *RealTimeAgent) GetRealTimeStats(ctx context.Context) (*context.RealTimeStats, error) {
+func (a *RealTimeAgent) GetRealTimeStats(ctx context.Context) (*beadscontext.RealTimeStats, error) {
 	return a.realTimeCtx.GetStats(ctx), nil
 }
 
 // QueryRealTimeData queries the real-time context.
-func (a *RealTimeAgent) QueryRealTimeData(ctx context.Context, query *context.Query) ([]*context.QueryResult, error) {
+func (a *RealTimeAgent) QueryRealTimeData(ctx context.Context, query *beadscontext.Query) ([]*beadscontext.QueryResult, error) {
 	return a.realTimeCtx.Query(ctx, *query)
 }
 
 // SearchRealTimeData searches the real-time context.
-func (a *RealTimeAgent) SearchRealTimeData(ctx context.Context, searchTerm string, limit int) ([]*context.SearchResult, error) {
+func (a *RealTimeAgent) SearchRealTimeData(ctx context.Context, searchTerm string, limit int) ([]*beadscontext.SearchResult, error) {
 	return a.realTimeCtx.Search(ctx, searchTerm, limit)
 }
 
@@ -302,7 +302,7 @@ func (a *RealTimeAgent) Close(ctx context.Context) error {
 	defer a.mutex.Unlock()
 
 	// Stop all pipelines
-	for pipelineID, pipeline := range a.pipelines {
+	for _, pipeline := range a.pipelines {
 		pipeline.Stop()
 	}
 
@@ -314,7 +314,7 @@ func (a *RealTimeAgent) Close(ctx context.Context) error {
 	}
 
 	// Clear subscribers
-	a.subscribers = make(map[string][]EventHandler)
+	a.subscribers = make(map[string][]RealTimeEventHandler)
 
 	close(a.eventBus)
 

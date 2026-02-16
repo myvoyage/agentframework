@@ -32,6 +32,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"runtime"
 	"sync"
 	"time"
@@ -92,7 +93,6 @@ type LeakDetectionConfig struct {
 	SampleSize         int           // Number of samples to analyze
 	ReportInterval     time.Duration // Interval between leak reports
 	HeapProfileEnabled bool          // Whether to enable heap profiling
-	SampleSize         int           `json:"sample_size"`
 	SamplingRate       float64       `json:"sampling_rate"` // Sampling rate (0.0-1.0) to reduce overhead
 	MaxSamples         int           `json:"max_samples"` // Maximum samples to keep in history
 }
@@ -573,7 +573,7 @@ func (m *MemoryMonitor) monitorLoop() {
 	defer ticker.Stop()
 
 	// Initialize random source for sampling
-	import "math/rand"
+	// Note: Since Go 1.20, global rand is automatically seeded, so we don't need to call rand.Seed()
 
 	for {
 		select {

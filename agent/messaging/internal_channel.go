@@ -111,7 +111,7 @@ func (ch *InternalChannel) Stop(ctx context.Context) error {
 	}
 
 	// 停止 MessageBus
-	ch.messageBus.Stop(ctx)
+	ch.messageBus.Stop()
 
 	// 停止 EventBus
 	ch.eventBus.Stop()
@@ -146,6 +146,29 @@ func (ch *InternalChannel) Publish(ctx context.Context, msg *ChannelMessage) err
 	startTime := time.Now()
 
 	// 转换为内部 Message 格式
+	// 注意：ReplyChan 在两种消息类型之间不兼容，需要单独处理
+	replyChan := msg.ReplyChan
+	var collabReplyChan chan *collaboration.Message
+	if replyChan != nil {
+		// 创建转换通道
+		collabReplyChan = make(chan *collaboration.Message, cap(replyChan))
+		go func() {
+			for chMsg := range replyChan {
+				// 转换回 collaboration.Message
+				collabReplyChan <- &collaboration.Message{
+					ID:        chMsg.ID,
+					Type:      mapMessageType(chMsg.Type),
+					From:      chMsg.Source,
+					To:        chMsg.Target,
+					Content:   chMsg.Content,
+					Timestamp: chMsg.Timestamp,
+					Metadata:  chMsg.Metadata,
+				}
+			}
+			close(collabReplyChan)
+		}()
+	}
+
 	internalMsg := &collaboration.Message{
 		ID:        msg.ID,
 		Type:      mapMessageType(msg.Type),
@@ -154,11 +177,11 @@ func (ch *InternalChannel) Publish(ctx context.Context, msg *ChannelMessage) err
 		Content:   msg.Content,
 		Timestamp: msg.Timestamp,
 		Metadata:  msg.Metadata,
-		ReplyChan: msg.ReplyChan,
+		ReplyChan: collabReplyChan,
 	}
 
 	// 发布到 MessageBus
-	if err := ch.messageBus.Send(ctx, internalMsg); err != nil {
+	if err := ch.messageBus.Publish(internalMsg); err != nil {
 		ch.stats.RecordMessage(false, time.Since(startTime))
 		return ErrPublishFailed{
 			Channel: ch.name,
@@ -190,11 +213,12 @@ func (ch *InternalChannel) Subscribe(ctx context.Context, handler ChannelHandler
 	defer ch.mu.Unlock()
 
 	// 添加到处理器列表
-	ch.handlers[ctx] = append(ch.handlers[ctx], handler)
+	handlerKey := fmt.Sprintf("%v", ctx)
+	ch.handlers[handlerKey] = append(ch.handlers[handlerKey], handler)
 
 	// 在 MessageBus 上订阅
 	subChan := make(chan *collaboration.Message, 10)
-	if err := ch.messageBus.Subscribe(ctx, "all", subChan); err != nil {
+	if err := ch.messageBus.Subscribe("all", subChan); err != nil {
 		return fmt.Errorf("failed to subscribe to message bus: %w", err)
 	}
 
@@ -236,6 +260,27 @@ func (ch *InternalChannel) listen(ctx context.Context, subChan <-chan *collabora
 				return
 			}
 
+			// 转换 ReplyChan 类型
+			var channelReplyChan chan *ChannelMessage
+			if msg.ReplyChan != nil {
+				channelReplyChan = make(chan *ChannelMessage, cap(msg.ReplyChan))
+				go func() {
+					for collabMsg := range msg.ReplyChan {
+						channelReplyChan <- &ChannelMessage{
+							ID:        collabMsg.ID,
+							Channel:   ch.name,
+							Type:      mapMessageTypeToChannel(collabMsg.Type),
+							Content:   collabMsg.Content,
+							Metadata:  collabMsg.Metadata,
+							Timestamp: collabMsg.Timestamp,
+							Source:    collabMsg.From,
+							Target:    collabMsg.To,
+						}
+					}
+					close(channelReplyChan)
+				}()
+			}
+
 			// 转换为 ChannelMessage
 			channelMsg := &ChannelMessage{
 				ID:        msg.ID,
@@ -247,7 +292,7 @@ func (ch *InternalChannel) listen(ctx context.Context, subChan <-chan *collabora
 				Source:    msg.From,
 				Target:    msg.To,
 				ReplyTo:   "",
-				ReplyChan: msg.ReplyChan,
+				ReplyChan: channelReplyChan,
 			}
 
 			// 调用处理器
@@ -282,7 +327,8 @@ func (ch *InternalChannel) HealthCheck(ctx context.Context) error {
 
 // GetStats 获取统计信息
 func (ch *InternalChannel) GetStats() *ChannelStats {
-	return ch.stats.GetSnapshot()
+	snapshot := ch.stats.GetSnapshot()
+	return &snapshot
 }
 
 // GetMessageBus 获取底层的 MessageBus（用于高级用法）

@@ -241,6 +241,7 @@ func TestParseChineseWeekday(t *testing.T) {
 func TestGetCronDescription(t *testing.T) {
 	tests := []struct {
 		cronExpr string
+		desc     string
 	}{
 		{cronExpr: "0 * * * * *", desc: "每分钟"},
 		{cronExpr: "0 9 * * * *", desc: "每天 9点"},
@@ -269,7 +270,7 @@ func BenchmarkTaskScheduler(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = s.ScheduleTask(ctx, task)
+		_, _ = s.ScheduleTask(ctx, task)
 	}
 	_ = ctx
 }

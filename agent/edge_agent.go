@@ -157,8 +157,9 @@ func (a *EdgeAgent) ListAllocations(ctx context.Context) ([]edge.ResourceAllocat
 }
 
 // GetAvailableResources returns available resources.
-func (a *EdgeAgent) GetAvailableResources(ctx context.Context) (memory int64, cpu float64, err error) {
-	return a.resources.GetAvailableResources(ctx)
+func (a *EdgeAgent) GetAvailableResources(ctx context.Context) (int64, float64, error) {
+	memory, cpu := a.resources.GetAvailableResources(ctx)
+	return memory, cpu, nil
 }
 
 // EnableMonitoring enables performance monitoring for deployments.
@@ -237,10 +238,22 @@ func (a *EdgeAgent) updateDeploymentMetrics(ctx context.Context) {
 func (a *EdgeAgent) GetSystemInfo(ctx context.Context) (*EdgeSystemInfo, error) {
 	memory, cpu, _ := a.GetAvailableResources(ctx)
 
+	var totalMemory int64
+	var totalCPU float64
+
+	// Safely get resource manager info
+	if rm, ok := interface{}(a.resources).(interface {
+		MaxMemory() int64
+		MaxCPU() float64
+	}); ok {
+		totalMemory = rm.MaxMemory()
+		totalCPU = rm.MaxCPU()
+	}
+
 	return &EdgeSystemInfo{
-		TotalMemory:     a.resources.(*edge.ResourceManager).MaxMemory(),
+		TotalMemory:     totalMemory,
 		AvailableMemory: memory,
-		TotalCPU:        a.resources.(*edge.ResourceManager).MaxCPU(),
+		TotalCPU:        totalCPU,
 		AvailableCPU:    cpu,
 		DeploymentCount: len(a.deployments),
 		MonitoringEnabled: a.monitoringEnabled,

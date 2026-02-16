@@ -35,9 +35,14 @@ func NewSerialDriver(config *SerialDeviceConfig) *SerialDriver {
 }
 
 // Connect establishes a connection to the serial port.
-func (d *SerialDriver) Connect(ctx context.Context) error {
+func (d *SerialDriver) Connect(ctx context.Context, config interface{}) error {
 	if d.port != nil {
 		return errors.New("already connected")
+	}
+
+	// Use provided config if available
+	if cfg, ok := config.(*SerialDeviceConfig); ok && cfg != nil {
+		d.config = cfg
 	}
 
 	// Configure serial port

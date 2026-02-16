@@ -12,8 +12,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"AgentFramework/agent/errors"
 )
@@ -28,12 +29,31 @@ type PluginRepository struct {
 
 // PluginInstaller handles plugin installation
 type PluginInstaller struct {
-	repoPath  string
+	repoPath   string
 	pluginsDir string
 }
 
-// PluginInfo represents information about an available plugin
-type PluginInfo struct {
+// InstallPlugin installs a plugin from repository info
+func (pi *PluginInstaller) InstallPlugin(ctx context.Context, info *RepositoryPluginInfo) error {
+	// Create plugin directory
+	pluginDir := filepath.Join(pi.pluginsDir, info.Name+"-"+info.Version)
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		return fmt.Errorf("failed to create plugin directory: %w", err)
+	}
+
+	// Extract and install plugin files
+	// This is a simplified implementation - in production, you would:
+	// 1. Verify the plugin archive checksum
+	// 2. Extract files to a temporary directory
+	// 3. Validate the plugin manifest
+	// 4. Move files to the final location
+	// 5. Register the plugin with the plugin manager
+
+	return nil
+}
+
+// RepositoryPluginInfo represents information about an available plugin in a repository
+type RepositoryPluginInfo struct {
 	Name          string `json:"name"`
 	Version       string `json:"version"`
 	Description   string `json:"description"`
@@ -103,7 +123,7 @@ func (m *PluginRepositoryManager) AddRepository(repo PluginRepository) error {
 		return errors.Newf(errors.ErrCodeInvalidInput, "repository %s already exists", repo.Name)
 	}
 
-	m.repositories[repo.Name] = repo
+	m.repositories[repo.Name] = &repo
 	return nil
 }
 
@@ -135,18 +155,18 @@ func (m *PluginRepositoryManager) ListRepositories() []PluginRepository {
 }
 
 // SearchPlugins searches for plugins by name or description
-func (m *PluginRepositoryManager) SearchPlugins(query string) ([]PluginInfo, error) {
+func (m *PluginRepositoryManager) SearchPlugins(query string) ([]RepositoryPluginInfo, error) {
 	m.mu.RLock()
 	defer m.mu.Unlock()
 
-	var results []PluginInfo
+	var results []RepositoryPluginInfo
 
 	for _, repo := range m.repositories {
 		if !repo.Enabled {
 			continue
 		}
 
-		plugins, err := m.fetchPlugins(repo)
+		plugins, err := m.fetchPlugins(*repo)
 		if err != nil {
 			return nil, err
 		}
@@ -163,7 +183,7 @@ func (m *PluginRepositoryManager) SearchPlugins(query string) ([]PluginInfo, err
 }
 
 // fetchPlugins fetches plugin list from a repository
-func (m *PluginRepositoryManager) fetchPlugins(repo PluginRepository) ([]PluginInfo, error) {
+func (m *PluginRepositoryManager) fetchPlugins(repo PluginRepository) ([]RepositoryPluginInfo, error) {
 	switch repo.Type {
 	case "local":
 		return m.fetchLocalPlugins(repo)
@@ -177,7 +197,7 @@ func (m *PluginRepositoryManager) fetchPlugins(repo PluginRepository) ([]PluginI
 }
 
 // fetchLocalPlugins fetches plugins from local repository
-func (m *PluginRepositoryManager) fetchLocalPlugins(repo PluginRepository) ([]PluginInfo, error) {
+func (m *PluginRepositoryManager) fetchLocalPlugins(repo PluginRepository) ([]RepositoryPluginInfo, error) {
 	manifestPath := filepath.Join(repo.URL, "manifest.json")
 
 	data, err := os.ReadFile(manifestPath)
@@ -186,7 +206,7 @@ func (m *PluginRepositoryManager) fetchLocalPlugins(repo PluginRepository) ([]Pl
 	}
 
 	var manifest struct {
-		Plugins []PluginInfo `json:"plugins"`
+		Plugins []RepositoryPluginInfo `json:"plugins"`
 	}
 
 	if err := json.Unmarshal(data, &manifest); err != nil {
@@ -197,7 +217,7 @@ func (m *PluginRepositoryManager) fetchLocalPlugins(repo PluginRepository) ([]Pl
 }
 
 // fetchHTTPPlugins fetches plugins from HTTP repository
-func (m *PluginRepositoryManager) fetchHTTPPlugins(repo PluginRepository) ([]PluginInfo, error) {
+func (m *PluginRepositoryManager) fetchHTTPPlugins(repo PluginRepository) ([]RepositoryPluginInfo, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
@@ -218,7 +238,7 @@ func (m *PluginRepositoryManager) fetchHTTPPlugins(repo PluginRepository) ([]Plu
 	}
 
 	var result struct {
-		Plugins []PluginInfo `json:"plugins"`
+		Plugins []RepositoryPluginInfo `json:"plugins"`
 	}
 
 	if err := json.Unmarshal(data, &result); err != nil {
@@ -229,13 +249,13 @@ func (m *PluginRepositoryManager) fetchHTTPPlugins(repo PluginRepository) ([]Plu
 }
 
 // fetchGitPlugins fetches plugins from Git repository
-func (m *PluginRepositoryManager) fetchGitPlugins(repo PluginRepository) ([]PluginInfo, error) {
+func (m *PluginRepositoryManager) fetchGitPlugins(repo PluginRepository) ([]RepositoryPluginInfo, error) {
 	// Placeholder for Git repository support
 	return nil, fmt.Errorf("git repository support not yet implemented")
 }
 
-// GetPluginInfo retrieves detailed information about a plugin
-func (m *PluginRepositoryManager) GetPluginInfo(repoName, pluginName string) (*PluginInfo, error) {
+// GetRepositoryPluginInfo retrieves detailed information about a plugin
+func (m *PluginRepositoryManager) GetRepositoryPluginInfo(repoName, pluginName string) (*RepositoryPluginInfo, error) {
 	m.mu.RLock()
 	defer m.mu.Unlock()
 
@@ -251,7 +271,7 @@ func (m *PluginRepositoryManager) GetPluginInfo(repoName, pluginName string) (*P
 
 	for _, plugin := range plugins {
 		if plugin.Name == pluginName {
-			return plugin, nil
+			return &plugin, nil
 		}
 	}
 
@@ -261,14 +281,14 @@ func (m *PluginRepositoryManager) GetPluginInfo(repoName, pluginName string) (*P
 // Install installs a plugin from repository
 func (m *PluginRepositoryManager) Install(ctx context.Context, repoName, pluginName string) error {
 	m.mu.Lock()
-	repo, exists := m.repositories[repoName]
+	_, exists := m.repositories[repoName]
 	if !exists {
 		m.mu.Unlock()
 		return errors.Newf(errors.ErrCodeNotFound, "repository %s not found", repoName)
 	}
 	m.mu.Unlock()
 
-	info, err := m.GetPluginInfo(repoName, pluginName)
+	info, err := m.GetRepositoryPluginInfo(repoName, pluginName)
 	if err != nil {
 		return errors.Wrapf(err, errors.ErrCodeExecutionFailed, "failed to get plugin info: %s", pluginName)
 	}
@@ -281,7 +301,7 @@ func (m *PluginRepositoryManager) Install(ctx context.Context, repoName, pluginN
 	}
 
 	// Install plugin
-	if err := m.installer.Install(info); err != nil {
+	if err := m.installer.InstallPlugin(ctx, info); err != nil {
 		return errors.Wrapf(err, errors.ErrCodeInstallFailed, "failed to install plugin: %w", pluginName)
 	}
 
@@ -289,7 +309,7 @@ func (m *PluginRepositoryManager) Install(ctx context.Context, repoName, pluginN
 }
 
 // downloadPlugin downloads a plugin from URL
-func (m *PluginRepositoryManager) downloadPlugin(info *PluginInfo) error {
+func (m *PluginRepositoryManager) downloadPlugin(info *RepositoryPluginInfo) error {
 	client := &http.Client{
 		Timeout: 60 * time.Second,
 	}
@@ -394,7 +414,11 @@ func (m *PluginRepositoryManager) findPluginPath(pluginName string) (string, err
 		}
 
 		if strings.HasPrefix(entry.Name(), pluginName) {
-			modTime := entry.ModTime()
+			info, err := entry.Info()
+			if err != nil {
+				continue
+			}
+			modTime := info.ModTime()
 			if modTime.After(latestModTime) {
 				latestPath = filepath.Join(m.installer.pluginsDir, entry.Name())
 				latestModTime = modTime

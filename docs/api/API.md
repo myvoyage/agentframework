@@ -1,8 +1,8 @@
 # API 完整参考
 
 > **AgentFramework API 完整参考**
-> **版本**: v1.0.0
-> **最后更新**: 2025-02-15
+> **版本**: v2.0.0
+> **最后更新**: 2026-02-15
 
 ---
 
@@ -15,6 +15,10 @@
 - [Sandbox API](#sandbox-api)
 - [Model API](#model-api)
 - [Collaboration API](#collaboration-api)
+- [EventBus API](#eventbus-api)
+- [Checkpoint API](#checkpoint-api)
+- [Monitor API](#monitor-api)
+- [Security API](#security-api)
 
 ---
 

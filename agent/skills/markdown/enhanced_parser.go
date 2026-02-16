@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -30,6 +31,7 @@ type EnhancedMarkdownSkillParser struct {
 type SkillParseCache struct {
 	entries map[string]*CacheEntry
 	ttl     time.Duration
+	mu      sync.RWMutex
 }
 
 // CacheEntry 缓存条目
@@ -66,7 +68,7 @@ func NewSkillParseCache(ttl time.Duration) *SkillParseCache {
 func (p *EnhancedMarkdownSkillParser) Parse(filePath string) (*skills.SkillDefinition, error) {
 	// 检查缓存
 	if cached, hit := p.cache.Get(filePath); hit {
-		return cached.definition, nil
+		return cached, nil
 	}
 
 	data, err := os.ReadFile(filePath)
@@ -175,12 +177,10 @@ func (p *EnhancedMarkdownSkillParser) enhanceMetadata(def *skills.SkillDefinitio
 
 	// Extract configuration schema from body
 	if schema := p.extractConfigSchema(body); schema != nil {
-		if def.Config.Parameters == nil {
-			def.Config.Parameters = make(map[string]string)
+		if def.Metadata == nil {
+			def.Metadata = make(map[string]interface{})
 		}
-		for k, v := range schema {
-			def.Config.Parameters[k] = v
-		}
+		def.Metadata["parameters"] = schema
 	}
 
 	return nil
@@ -356,11 +356,11 @@ func (p *EnhancedMarkdownSkillParser) extractWorkflow(body string) ([]skills.Wor
 		}
 
 		// Parse step definition
-		matches := stepRe.FindStringSubmatch(line, -1)
+		matches := stepRe.FindStringSubmatch(line)
 		if len(matches) > 1 {
 			stepNum := matches[1]
 			// Try to convert to int
-			if num, err := fmt.Sscanf(stepNum, "%d", &currentStep); err == nil {
+			if _, err := fmt.Sscanf(stepNum, "%d", &currentStep); err == nil {
 				// Extract step details
 				step := p.parseWorkflowStep(lines, i)
 				if step != nil {
@@ -564,12 +564,6 @@ func (c *SkillParseCache) Size() int {
 	defer c.mu.RUnlock()
 
 	return len(c.entries)
-}
-
-// mu 读写锁
-func (c *SkillParseCache) mu {
-	// Note: This should be sync.RWMutex in real implementation
-	// For simplicity, we're using map without proper locking here
 }
 
 // EnhancedValidator 增强验证器

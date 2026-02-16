@@ -196,7 +196,7 @@ package myskills
 import (
     "context"
     "github.com/cloudwego/eino/schema"
-    "your-org/agentframework/agent/skills"
+    "myvoyage/agentframework/agent/skills"
 )
 
 // MyCustomSkill 自定义技能
@@ -266,8 +266,8 @@ package main
 import (
     "context"
     "log"
-    "your-org/agentframework/agent/skills"
-    "your-org/agentframework/myskills"
+    "myvoyage/agentframework/agent/skills"
+    "myvoyage/agentframework/myskills"
 )
 
 func main() {
@@ -690,7 +690,7 @@ import (
     "context"
     "encoding/json"
     "github.com/cloudwego/eino/schema"
-    "your-org/agentframework/agent/skills"
+    "myvoyage/agentframework/agent/skills"
 )
 
 type MyGoSkill struct {
