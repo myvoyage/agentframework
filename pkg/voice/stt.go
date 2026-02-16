@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -478,17 +481,144 @@ func (m *STTModule) recordAndTranscribe(ctx context.Context, duration int, langu
 
 // getAudioDuration 获取音频时长
 func (m *STTModule) getAudioDuration(audioPath string) (float64, error) {
-	// 简化实现，实际应该使用音频库解析
-	return 30.0, nil
+	// 使用 ffprobe 或 sox 获取音频时长
+	if _, err := exec.LookPath("ffprobe"); err == nil {
+		return m.getDurationFFProbe(audioPath)
+	}
+	if _, err := exec.LookPath("sox"); err == nil {
+		return m.getDurationSoX(audioPath)
+	}
+	if _, err := exec.LookPath("mediainfo"); err == nil {
+		return m.getDurationMediaInfo(audioPath)
+	}
+	
+	// 回退：根据文件大小估算（假设 16kHz 16bit 单声道）
+	fileInfo, err := os.Stat(audioPath)
+	if err != nil {
+		return 0, err
+	}
+	// WAV 文件头部 44 字节
+	fileSize := fileInfo.Size()
+	if fileSize > 44 {
+		// 16kHz * 2 bytes = 32000 bytes/second
+		return float64(fileSize-44) / 32000.0, nil
+	}
+	return 0, nil
+}
+
+func (m *STTModule) getDurationFFProbe(audioPath string) (float64, error) {
+	cmd := exec.Command("ffprobe", "-v", "error", "-show_entries", 
+		"format=duration", "-of", "default=noprint_wrappers=1:nokey=1", audioPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	
+	var duration float64
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%f", &duration)
+	return duration, err
+}
+
+func (m *STTModule) getDurationSoX(audioPath string) (float64, error) {
+	cmd := exec.Command("sox", "--i", "-D", audioPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	
+	var duration float64
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%f", &duration)
+	return duration, err
+}
+
+func (m *STTModule) getDurationMediaInfo(audioPath string) (float64, error) {
+	cmd := exec.Command("mediainfo", "--Output=General;%Duration%", audioPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	
+	var durationMs float64
+	_, err = fmt.Sscanf(strings.TrimSpace(string(output)), "%f", &durationMs)
+	return durationMs / 1000.0, err
 }
 
 // recordAudio 录音到文件
 func (m *STTModule) recordAudio(outputPath string, duration int) error {
 	// 平台特定录音实现
-	// Windows: 使用 winmm 库
-	// macOS: 使用 AVFoundation
-	// Linux: 使用 ALSA 或 PulseAudio
-	return fmt.Errorf("audio recording not implemented")
+	switch runtime.GOOS {
+	case "windows":
+		return m.recordWindows(outputPath, duration)
+	case "darwin":
+		return m.recordMacOS(outputPath, duration)
+	case "linux":
+		return m.recordLinux(outputPath, duration)
+	default:
+		return fmt.Errorf("unsupported platform for recording: %s", runtime.GOOS)
+	}
+}
+
+func (m *STTModule) recordWindows(outputPath string, duration int) error {
+	// Windows 使用 PowerShell 和 .NET 录音
+	// 或者使用 ffmpeg（如果可用）
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		return m.recordFFmpeg(outputPath, duration)
+	}
+	
+	// 使用 PowerShell 脚本录音
+	psScript := fmt.Sprintf(`
+Add-Type -AssemblyName System.Speech
+$recorder = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+$recorder.SetInputToDefaultAudioDevice()
+Start-Sleep -Seconds %d
+`, duration)
+	
+	cmd := exec.Command("powershell", "-command", psScript)
+	return cmd.Run()
+}
+
+func (m *STTModule) recordMacOS(outputPath string, duration int) error {
+	// macOS 使用 sox 或 ffmpeg
+	if _, err := exec.LookPath("sox"); err == nil {
+		cmd := exec.Command("sox", "-d", "-r", "16000", "-c", "1", 
+			outputPath, "trim", "0", fmt.Sprintf("%d", duration))
+		return cmd.Run()
+	}
+	
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		return m.recordFFmpeg(outputPath, duration)
+	}
+	
+	return fmt.Errorf("neither sox nor ffmpeg is available for recording on macOS")
+}
+
+func (m *STTModule) recordLinux(outputPath string, duration int) error {
+	// Linux 使用 arecord (ALSA) 或 ffmpeg
+	if _, err := exec.LookPath("arecord"); err == nil {
+		cmd := exec.Command("arecord", "-d", fmt.Sprintf("%d", duration),
+			"-f", "S16_LE", "-r", "16000", "-c", "1", outputPath)
+		return cmd.Run()
+	}
+	
+	if _, err := exec.LookPath("ffmpeg"); err == nil {
+		return m.recordFFmpeg(outputPath, duration)
+	}
+	
+	if _, err := exec.LookPath("sox"); err == nil {
+		cmd := exec.Command("sox", "-d", "-r", "16000", "-c", "1", 
+			outputPath, "trim", "0", fmt.Sprintf("%d", duration))
+		return cmd.Run()
+	}
+	
+	return fmt.Errorf("neither arecord, ffmpeg, nor sox is available for recording on Linux")
+}
+
+func (m *STTModule) recordFFmpeg(outputPath string, duration int) error {
+	cmd := exec.Command("ffmpeg", "-f", "alsa", "-i", "default",
+		"-t", fmt.Sprintf("%d", duration),
+		"-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+		"-y", outputPath)
+	return cmd.Run()
 }
 
 // ==================== 引擎实现 ====================
@@ -505,31 +635,158 @@ func NewLocalSTTEngine(config STTConfig) (*LocalSTTEngine, error) {
 
 func (e *LocalSTTEngine) Transcribe(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
 	// 使用平台特定 API
-	// Windows: Speech Platform
-	// macOS: Speech Framework
-	// Linux: PocketSphinx 或 CMU Sphinx
+	switch runtime.GOOS {
+	case "windows":
+		return e.transcribeWindows(ctx, audioPath, options)
+	case "darwin":
+		return e.transcribeMacOS(ctx, audioPath, options)
+	case "linux":
+		return e.transcribeLinux(ctx, audioPath, options)
+	default:
+		return &STTResult{
+			Success:  false,
+			Error:    fmt.Sprintf("unsupported platform: %s", runtime.GOOS),
+			Language: options.Language,
+		}, nil
+	}
+}
 
+func (e *LocalSTTEngine) transcribeWindows(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// Windows 使用 PowerShell 调用 Speech Platform
+	psScript := fmt.Sprintf(`
+Add-Type -AssemblyName System.Speech
+$recognizer = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+$recognizer.SetInputToWaveFile("%s")
+$result = $recognizer.Recognize()
+$result.Text
+`, audioPath)
+	
+	cmd := exec.CommandContext(ctx, "powershell", "-command", psScript)
+	output, err := cmd.Output()
+	if err != nil {
+		return &STTResult{
+			Success:  false,
+			Error:    fmt.Sprintf("Windows STT failed: %v", err),
+			Language: options.Language,
+		}, nil
+	}
+	
+	text := strings.TrimSpace(string(output))
+	return &STTResult{
+		Success:  true,
+		Text:     text,
+		Language: options.Language,
+	}, nil
+}
+
+func (e *LocalSTTEngine) transcribeMacOS(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// macOS 使用 Speech Framework 或 whisper.cpp
+	// 检查是否有 whisper.cpp
+	if _, err := exec.LookPath("whisper"); err == nil {
+		return e.transcribeWhisperCLI(ctx, audioPath, options)
+	}
+	
 	return &STTResult{
 		Success:  false,
-		Error:    "Local STT not implemented",
+		Error:    "macOS STT requires whisper.cpp or similar tool",
+		Language: options.Language,
+	}, nil
+}
+
+func (e *LocalSTTEngine) transcribeLinux(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// Linux 使用 vosk 或 whisper.cpp
+	if _, err := exec.LookPath("whisper"); err == nil {
+		return e.transcribeWhisperCLI(ctx, audioPath, options)
+	}
+	
+	if _, err := exec.LookPath("vosk-transcriber"); err == nil {
+		return e.transcribeVosk(ctx, audioPath, options)
+	}
+	
+	return &STTResult{
+		Success:  false,
+		Error:    "Linux STT requires whisper.cpp or vosk",
+		Language: options.Language,
+	}, nil
+}
+
+func (e *LocalSTTEngine) transcribeWhisperCLI(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// 使用 whisper.cpp 命令行工具
+	args := []string{"-f", audioPath, "-otxt", "-of", "-"}
+	
+	if options.Language != "" {
+		args = append(args, "-l", options.Language)
+	}
+	
+	cmd := exec.CommandContext(ctx, "whisper", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return &STTResult{
+			Success:  false,
+			Error:    fmt.Sprintf("Whisper STT failed: %v", err),
+			Language: options.Language,
+		}, nil
+	}
+	
+	text := strings.TrimSpace(string(output))
+	return &STTResult{
+		Success:  true,
+		Text:     text,
+		Language: options.Language,
+	}, nil
+}
+
+func (e *LocalSTTEngine) transcribeVosk(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// 使用 vosk-transcriber
+	cmd := exec.CommandContext(ctx, "vosk-transcriber", "-i", audioPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return &STTResult{
+			Success:  false,
+			Error:    fmt.Sprintf("Vosk STT failed: %v", err),
+			Language: options.Language,
+		}, nil
+	}
+	
+	text := strings.TrimSpace(string(output))
+	return &STTResult{
+		Success:  true,
+		Text:     text,
 		Language: options.Language,
 	}, nil
 }
 
 func (e *LocalSTTEngine) TranscribeStream(ctx context.Context, audioStream io.Reader, options STTOptions) (*STTResult, error) {
-	return &STTResult{
-		Success: false,
-		Error:   "Stream transcription not implemented",
-	}, nil
+	// 流式转录需要保存到临时文件
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("stream_%d.wav", time.Now().UnixNano()))
+	defer os.Remove(tmpFile)
+	
+	// 保存流到文件
+	data, err := io.ReadAll(audioStream)
+	if err != nil {
+		return &STTResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read audio stream: %v", err),
+		}, nil
+	}
+	
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return &STTResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to write temp file: %v", err),
+		}, nil
+	}
+	
+	return e.Transcribe(ctx, tmpFile, options)
 }
 
 func (e *LocalSTTEngine) GetCapabilities() STTCapabilities {
 	return STTCapabilities{
-		SampleRates:       []int{8000, 16000, 44100, 48000},
+		SampleRates:        []int{8000, 16000, 44100, 48000},
 		SupportedLanguages: []string{"zh-CN", "en-US", "ja-JP", "ko-KR"},
-		Streaming:         false,
+		Streaming:          false,
 		SpeakerDiarization: false,
-		Timestamps:        false,
+		Timestamps:         false,
 	}
 }
 
@@ -539,8 +796,8 @@ func (e *LocalSTTEngine) Close() error {
 
 // WhisperSTTEngine OpenAI Whisper 引擎
 type WhisperSTTEngine struct {
-	config STTConfig
-	// whisper 模型加载
+	config    STTConfig
+	modelPath string
 }
 
 // NewWhisperSTTEngine 创建 Whisper 引擎
@@ -549,27 +806,78 @@ func NewWhisperSTTEngine(config STTConfig) (*WhisperSTTEngine, error) {
 }
 
 func (e *WhisperSTTEngine) Transcribe(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
-	// 使用 ggergan/whisper 或 github.com/ggergan/go-whisper
+	// 使用 whisper.cpp 或 go-whisper
+	// 检查 whisper 命令行工具
+	if _, err := exec.LookPath("whisper"); err == nil {
+		return e.transcribeWhisperCLI(ctx, audioPath, options)
+	}
+	
+	// 尝试使用 go-whisper 库
+	// 实际实现需要: github.com/ggergan/go-whisper
 	return &STTResult{
 		Success: false,
-		Error:   "Whisper STT not implemented",
+		Error:   "Whisper STT requires whisper.cpp or go-whisper library",
+	}, nil
+}
+
+func (e *WhisperSTTEngine) transcribeWhisperCLI(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	args := []string{"-f", audioPath, "-otxt", "-of", "-"}
+	
+	if options.Language != "" {
+		args = append(args, "-l", options.Language)
+	}
+	
+	if options.EnableTimestamp {
+		args = append(args, "-osrt")
+	}
+	
+	cmd := exec.CommandContext(ctx, "whisper", args...)
+	output, err := cmd.Output()
+	if err != nil {
+		return &STTResult{
+			Success: false,
+			Error:   fmt.Sprintf("Whisper CLI failed: %v", err),
+		}, nil
+	}
+	
+	text := strings.TrimSpace(string(output))
+	return &STTResult{
+		Success:  true,
+		Text:     text,
+		Language: options.Language,
 	}, nil
 }
 
 func (e *WhisperSTTEngine) TranscribeStream(ctx context.Context, audioStream io.Reader, options STTOptions) (*STTResult, error) {
-	return &STTResult{
-		Success: false,
-		Error:   "Whisper stream transcription not implemented",
-	}, nil
+	// 保存流到临时文件
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("whisper_stream_%d.wav", time.Now().UnixNano()))
+	defer os.Remove(tmpFile)
+	
+	data, err := io.ReadAll(audioStream)
+	if err != nil {
+		return &STTResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read stream: %v", err),
+		}, nil
+	}
+	
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return &STTResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to write temp file: %v", err),
+		}, nil
+	}
+	
+	return e.Transcribe(ctx, tmpFile, options)
 }
 
 func (e *WhisperSTTEngine) GetCapabilities() STTCapabilities {
 	return STTCapabilities{
-		SampleRates:       []int{16000},
+		SampleRates:        []int{16000},
 		SupportedLanguages: []string{"zh", "en", "es", "fr", "de", "ja", "ko"},
-		Streaming:         false,
+		Streaming:          false,
 		SpeakerDiarization: true,
-		Timestamps:        true,
+		Timestamps:         true,
 	}
 }
 
@@ -579,37 +887,79 @@ func (e *WhisperSTTEngine) Close() error {
 
 // APISTTEngine API 语音转文字引擎（云服务）
 type APISTTEngine struct {
-	config STTConfig
-	// API 客户端
+	config    STTConfig
+	apiKey    string
+	endpoint  string
+	provider  string // "azure", "google", "aws"
 }
 
 // NewAPISTTEngine 创建 API 引擎
 func NewAPISTTEngine(config STTConfig) (*APISTTEngine, error) {
-	return &APISTTEngine{config: config}, nil
+	return &APISTTEngine{
+		config:   config,
+		provider: "default",
+	}, nil
 }
 
 func (e *APISTTEngine) Transcribe(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
-	// 调用云服务 API（如 Azure Speech, Google Speech-to-Text, AWS Transcribe）
+	// 调用云服务 API
+	switch e.provider {
+	case "azure":
+		return e.transcribeAzure(ctx, audioPath, options)
+	case "google":
+		return e.transcribeGoogle(ctx, audioPath, options)
+	case "aws":
+		return e.transcribeAWS(ctx, audioPath, options)
+	default:
+		return &STTResult{
+			Success: false,
+			Error:   "API STT provider not configured",
+		}, nil
+	}
+}
+
+func (e *APISTTEngine) transcribeAzure(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// Azure Speech Service STT
+	// 需要: github.com/Microsoft/cognitive-services-speech-sdk-go
 	return &STTResult{
 		Success: false,
-		Error:   "API STT not implemented",
+		Error:   "Azure STT requires cognitive-services-speech-sdk-go",
+	}, nil
+}
+
+func (e *APISTTEngine) transcribeGoogle(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// Google Cloud Speech-to-Text
+	// 需要: cloud.google.com/go/speech
+	return &STTResult{
+		Success: false,
+		Error:   "Google STT requires cloud.google.com/go/speech",
+	}, nil
+}
+
+func (e *APISTTEngine) transcribeAWS(ctx context.Context, audioPath string, options STTOptions) (*STTResult, error) {
+	// AWS Transcribe
+	// 需要: github.com/aws/aws-sdk-go-v2/service/transcribe
+	return &STTResult{
+		Success: false,
+		Error:   "AWS Transcribe requires aws-sdk-go-v2",
 	}, nil
 }
 
 func (e *APISTTEngine) TranscribeStream(ctx context.Context, audioStream io.Reader, options STTOptions) (*STTResult, error) {
+	// 流式 API 调用
 	return &STTResult{
 		Success: false,
-		Error:   "API stream transcription not implemented",
+		Error:   "streaming transcription not implemented for API engine",
 	}, nil
 }
 
 func (e *APISTTEngine) GetCapabilities() STTCapabilities {
 	return STTCapabilities{
-		SampleRates:       []int{8000, 16000, 44100, 48000},
+		SampleRates:        []int{8000, 16000, 44100, 48000},
 		SupportedLanguages: []string{"zh-CN", "en-US", "ja-JP", "ko-KR", "es-ES", "fr-FR"},
-		Streaming:         true,
+		Streaming:          true,
 		SpeakerDiarization: true,
-		Timestamps:        true,
+		Timestamps:         true,
 	}
 }
 

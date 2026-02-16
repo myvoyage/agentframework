@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 )
 
 // AITask represents an AI task that can be scheduled
@@ -467,9 +468,16 @@ func generateExecutionID() string {
 
 // calculateNextRun 计算下次运行时间
 func calculateNextRun(cronExpr string) (time.Time, error) {
-	// 这里使用 cron 库解析并计算下次运行时间
-	// 简化实现，返回 1 小时后
-	return time.Now().Add(time.Hour), nil
+	// 使用 cron 库解析表达式
+	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	schedule, err := parser.Parse(cronExpr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid cron expression '%s': %w", cronExpr, err)
+	}
+	
+	// 计算下次运行时间
+	nextRun := schedule.Next(time.Now())
+	return nextRun, nil
 }
 
 // generateInputFromTemplate 从模板生成输入

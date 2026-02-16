@@ -8,12 +8,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
+	"github.com/google/uuid"
 )
 
 // NotificationModule 系统通知模块
@@ -214,20 +217,41 @@ func (t *notificationSendTool) Info(ctx context.Context) (*schema.ToolInfo, erro
 
 func (t *notificationSendTool) InvokableRun(ctx context.Context, input string, opts ...tool.Option) (string, error) {
 	var args struct {
-		Title     string                 `json:"title"`
-		Body      string                 `json:"body"`
-		Icon      string                 `json:"icon"`
-		Sound     string                 `json:"sound"`
-		Category  string                 `json:"category"`
-		Priority  string                 `json:"priority"`
-		Timeout   int                    `json:"timeout"`
-		Actions   []NotificationAction    `json:"actions"`
+		Title     string              `json:"title"`
+		Body      string              `json:"body"`
+		Icon      string              `json:"icon"`
+		Sound     string              `json:"sound"`
+		Category  string              `json:"category"`
+		Priority  string              `json:"priority"`
+		Timeout   int                 `json:"timeout"`
+		Actions   []NotificationAction `json:"actions"`
 	}
 	if err := json.Unmarshal([]byte(input), &args); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
 
-	result, err := t.module.sendNotification(args)
+	// 转换为 sendNotification 期望的结构
+	notifArgs := struct {
+		Title     string
+		Body      string
+		Icon      string
+		Sound     string
+		Category  string
+		Priority  string
+		Timeout   int
+		Actions   []NotificationAction
+	}{
+		Title:    args.Title,
+		Body:     args.Body,
+		Icon:     args.Icon,
+		Sound:    args.Sound,
+		Category: args.Category,
+		Priority: args.Priority,
+		Timeout:  args.Timeout,
+		Actions:  args.Actions,
+	}
+
+	result, err := t.module.sendNotification(notifArgs)
 	if err != nil {
 		return "", err
 	}
@@ -660,24 +684,53 @@ func (m *NotificationModule) getHistory(limit int, category string) (map[string]
 
 // generateNotificationID 生成通知 ID
 func generateNotificationID() string {
-	return fmt.Sprintf("notif_%d", time.Now().UnixNano())
+	return fmt.Sprintf("notif_%s", uuid.New().String()[:8])
 }
 
 // ==================== 平台特定实现 ====================
 
 // WindowsNotifier Windows 通知实现
-type WindowsNotifier struct {
-	// Windows 特定字段
-}
+type WindowsNotifier struct{}
 
 func NewWindowsNotifier() (*WindowsNotifier, error) {
 	return &WindowsNotifier{}, nil
 }
 
 func (n *WindowsNotifier) Send(notification *Notification) error {
-	// Windows 10/11 使用 Windows Toast API
-	// 可以使用 github.com/go-toast/toast 库
-	return fmt.Errorf("not implemented")
+	// 使用 PowerShell 发送 Windows Toast 通知
+	psScript := fmt.Sprintf(`
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+$template = @"
+<toast>
+    <visual>
+        <binding template="ToastText02">
+            <text id="1">%s</text>
+            <text id="2">%s</text>
+        </binding>
+    </visual>
+</toast>
+"@
+
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Agent Framework").Show($toast)
+`, escapeXML(notification.Title), escapeXML(notification.Body))
+	
+	cmd := exec.Command("powershell", "-command", psScript)
+	if err := cmd.Run(); err != nil {
+		// 回退到简单的消息框
+		return n.showMessageBox(notification)
+	}
+	return nil
+}
+
+func (n *WindowsNotifier) showMessageBox(notification *Notification) error {
+	// 使用 msg 命令作为回退
+	cmd := exec.Command("msg", "*", "/time:5", notification.Title+": "+notification.Body)
+	return cmd.Run()
 }
 
 func (n *WindowsNotifier) GetCapabilities() NotificationCapabilities {
@@ -685,11 +738,11 @@ func (n *WindowsNotifier) GetCapabilities() NotificationCapabilities {
 		Title:      true,
 		Body:       true,
 		Icon:       true,
-		Image:      true,
+		Image:      false,
 		Sound:      true,
-		Progress:   true,
-		Actions:    true,
-		Grouping:   true,
+		Progress:   false,
+		Actions:    false,
+		Grouping:   false,
 		Priority:   true,
 		Expiration: true,
 		Categories: true,
@@ -701,32 +754,43 @@ func (n *WindowsNotifier) Close() error {
 }
 
 // MacOSNotifier macOS 通知实现
-type MacOSNotifier struct {
-	// macOS 特定字段
-}
+type MacOSNotifier struct{}
 
 func NewMacOSNotifier() (*MacOSNotifier, error) {
 	return &MacOSNotifier{}, nil
 }
 
 func (n *MacOSNotifier) Send(notification *Notification) error {
-	// macOS 使用 osascript / terminal-notifier
-	// 可以使用 github.com/deckarep/gosx-notifier 库
-	return fmt.Errorf("not implemented")
+	// 使用 osascript 发送 macOS 通知
+	script := fmt.Sprintf(`display notification "%s" with title "%s"`, 
+		escapeAppleScript(notification.Body), 
+		escapeAppleScript(notification.Title))
+	
+	if notification.Sound != "" {
+		script += fmt.Sprintf(` sound name "%s"`, notification.Sound)
+	} else {
+		script += ` sound name "default"`
+	}
+	
+	cmd := exec.Command("osascript", "-e", script)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to send notification: %w", err)
+	}
+	return nil
 }
 
 func (n *MacOSNotifier) GetCapabilities() NotificationCapabilities {
 	return NotificationCapabilities{
 		Title:      true,
 		Body:       true,
-		Icon:       true,
-		Image:      true,
+		Icon:       false,
+		Image:      false,
 		Sound:      true,
-		Progress:   true,
-		Actions:    true,
+		Progress:   false,
+		Actions:    false,
 		Grouping:   true,
 		Priority:   true,
-		Expiration: true,
+		Expiration: false,
 		Categories: true,
 	}
 }
@@ -736,18 +800,53 @@ func (n *MacOSNotifier) Close() error {
 }
 
 // LinuxNotifier Linux 通知实现
-type LinuxNotifier struct {
-	// Linux 特定字段
-}
+type LinuxNotifier struct{}
 
 func NewLinuxNotifier() (*LinuxNotifier, error) {
+	// 检查 notify-send 是否可用
+	if _, err := exec.LookPath("notify-send"); err != nil {
+		return nil, fmt.Errorf("notify-send not available")
+	}
 	return &LinuxNotifier{}, nil
 }
 
 func (n *LinuxNotifier) Send(notification *Notification) error {
-	// Linux 使用 libnotify / notify-send
-	// 可以使用 github.com/esiqvelandir/notify 库
-	return fmt.Errorf("not implemented")
+	// 使用 notify-send 发送 Linux 通知
+	args := []string{}
+	
+	// 添加紧急程度
+	switch notification.Priority {
+	case "urgent":
+		args = append(args, "--urgency=critical")
+	case "low":
+		args = append(args, "--urgency=low")
+	default:
+		args = append(args, "--urgency=normal")
+	}
+	
+	// 添加过期时间
+	if notification.Timeout > 0 {
+		args = append(args, fmt.Sprintf("--expire-time=%d", notification.Timeout*1000))
+	}
+	
+	// 添加类别
+	if notification.Category != "" {
+		args = append(args, "--category="+notification.Category)
+	}
+	
+	// 添加图标
+	if notification.Icon != "" {
+		args = append(args, "--icon="+notification.Icon)
+	}
+	
+	// 添加标题和内容
+	args = append(args, notification.Title, notification.Body)
+	
+	cmd := exec.Command("notify-send", args...)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to send notification: %w", err)
+	}
+	return nil
 }
 
 func (n *LinuxNotifier) GetCapabilities() NotificationCapabilities {
@@ -755,9 +854,9 @@ func (n *LinuxNotifier) GetCapabilities() NotificationCapabilities {
 		Title:      true,
 		Body:       true,
 		Icon:       true,
-		Image:      true,
-		Sound:      true,
-		Progress:   true,
+		Image:      false,
+		Sound:      false,
+		Progress:   false,
 		Actions:    true,
 		Grouping:   true,
 		Priority:   true,
@@ -768,4 +867,23 @@ func (n *LinuxNotifier) GetCapabilities() NotificationCapabilities {
 
 func (n *LinuxNotifier) Close() error {
 	return nil
+}
+
+// ==================== 辅助函数 ====================
+
+// escapeXML 转义 XML 特殊字符
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
+}
+
+// escapeAppleScript 转义 AppleScript 特殊字符
+func escapeAppleScript(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "\"", "\\\"")
+	return s
 }

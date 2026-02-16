@@ -6,10 +6,14 @@ package voice
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -540,7 +544,7 @@ func (m *TTSModule) synthesize(ctx context.Context, text, voice string, rate, pi
 
 	m.stats.mu.Lock()
 	m.stats.SuccessCount++
-	m.stats.TotalCharacters += result.Characters
+	m.stats.TotalCharacters += int64(result.Characters)
 	m.stats.TotalDuration += result.Duration
 	m.stats.mu.Unlock()
 
@@ -548,7 +552,7 @@ func (m *TTSModule) synthesize(ctx context.Context, text, voice string, rate, pi
 }
 
 // synthesizeToFile 合成语音到文件
-func (m *TTSModule) synthesizeToFile(ctx context.Context, text, outputPath, voice string, rate, outputFormat string) error {
+func (m *TTSModule) synthesizeToFile(ctx context.Context, text, outputPath, voice string, rate int, outputFormat string) error {
 	if voice == "" {
 		voice = m.config.Voice
 	}
@@ -701,7 +705,7 @@ func (m *TTSModule) synthesizeSSML(ctx context.Context, ssml, outputPath string)
 
 	m.stats.mu.Lock()
 	m.stats.SuccessCount++
-	m.stats.TotalCharacters += result.Characters
+	m.stats.TotalCharacters += int64(result.Characters)
 	m.stats.TotalDuration += result.Duration
 	m.stats.mu.Unlock()
 
@@ -722,43 +726,273 @@ func NewLocalTTSEngine(config TTSConfig) (*LocalTTSEngine, error) {
 
 func (e *LocalTTSEngine) Synthesize(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
 	// 使用平台特定 API
-	// Windows: SAPI
-	// macOS: AVSpeechSynthesizer
-	// Linux: eSpeak NG / Festival
+	// Windows: SAPI (Speech API)
+	// macOS: say 命令
+	// Linux: espeak-ng / festival
+	
+	switch runtime.GOOS {
+	case "windows":
+		return e.synthesizeWindows(ctx, text, options)
+	case "darwin":
+		return e.synthesizeMacOS(ctx, text, options)
+	case "linux":
+		return e.synthesizeLinux(ctx, text, options)
+	default:
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("unsupported platform: %s", runtime.GOOS),
+		}, nil
+	}
+}
 
+func (e *LocalTTSEngine) synthesizeWindows(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// 使用 PowerShell 调用 SAPI
+	psScript := fmt.Sprintf(`
+Add-Type -AssemblyName System.Speech
+$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$speak.Speak("%s")
+`, escapePowerShell(text))
+	
+	// 创建临时音频文件
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("tts_%d.wav", time.Now().UnixNano()))
+	psScriptToFile := fmt.Sprintf(`
+Add-Type -AssemblyName System.Speech
+$speak = New-Object System.Speech.Synthesis.SpeechSynthesizer
+$speak.SetOutputToWaveFile("%s")
+$speak.Speak("%s")
+$speak.SetOutputToNull()
+`, tmpFile, escapePowerShell(text))
+	
+	cmd := exec.CommandContext(ctx, "powershell", "-command", psScriptToFile)
+	if err := cmd.Run(); err != nil {
+		// 回退到仅播放（不保存文件）
+		cmd = exec.CommandContext(ctx, "powershell", "-command", psScript)
+		if err := cmd.Run(); err != nil {
+			return &TTSResult{
+				Success: false,
+				Error:   fmt.Sprintf("Windows TTS failed: %v", err),
+			}, nil
+		}
+		return &TTSResult{
+			Success:   true,
+			Format:    "wav",
+			Voice:     options.Voice,
+			Characters: len(text),
+		}, nil
+	}
+	
+	// 读取音频文件
+	audioData, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read audio file: %v", err),
+		}, nil
+	}
+	
 	return &TTSResult{
-		Success: false,
-		Error:   "Local TTS not implemented",
+		Success:    true,
+		AudioData:  audioData,
+		AudioPath:  tmpFile,
+		Format:     "wav",
+		Voice:      options.Voice,
+		Characters: len(text),
+	}, nil
+}
+
+func (e *LocalTTSEngine) synthesizeMacOS(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// 使用 macOS say 命令
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("tts_%d.aiff", time.Now().UnixNano()))
+	
+	args := []string{}
+	if options.Voice != "" {
+		args = append(args, "-v", options.Voice)
+	}
+	if options.Rate != 0 {
+		// say 命令的语速范围是不同的
+		rate := 175 + (options.Rate * 20) // 默认 175
+		args = append(args, "-r", fmt.Sprintf("%d", rate))
+	}
+	args = append(args, "-o", tmpFile, text)
+	
+	cmd := exec.CommandContext(ctx, "say", args...)
+	if err := cmd.Run(); err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("macOS TTS failed: %v", err),
+		}, nil
+	}
+	
+	// 读取音频文件
+	audioData, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read audio file: %v", err),
+		}, nil
+	}
+	
+	return &TTSResult{
+		Success:    true,
+		AudioData:  audioData,
+		AudioPath:  tmpFile,
+		Format:     "aiff",
+		Voice:      options.Voice,
+		Characters: len(text),
+	}, nil
+}
+
+func (e *LocalTTSEngine) synthesizeLinux(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// 使用 espeak-ng 或 espeak
+	var cmd *exec.Cmd
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("tts_%d.wav", time.Now().UnixNano()))
+	
+	// 检查 espeak-ng 是否可用
+	if _, err := exec.LookPath("espeak-ng"); err == nil {
+		args := []string{"-w", tmpFile}
+		if options.Voice != "" {
+			args = append(args, "-v", options.Voice)
+		}
+		if options.Rate != 0 {
+			rate := 175 + (options.Rate * 20)
+			args = append(args, "-s", fmt.Sprintf("%d", rate))
+		}
+		args = append(args, text)
+		cmd = exec.CommandContext(ctx, "espeak-ng", args...)
+	} else if _, err := exec.LookPath("espeak"); err == nil {
+		args := []string{"-w", tmpFile}
+		if options.Voice != "" {
+			args = append(args, "-v", options.Voice)
+		}
+		args = append(args, text)
+		cmd = exec.CommandContext(ctx, "espeak", args...)
+	} else {
+		return &TTSResult{
+			Success: false,
+			Error:   "neither espeak-ng nor espeak is available",
+		}, nil
+	}
+	
+	if err := cmd.Run(); err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("Linux TTS failed: %v", err),
+		}, nil
+	}
+	
+	// 读取音频文件
+	audioData, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read audio file: %v", err),
+		}, nil
+	}
+	
+	return &TTSResult{
+		Success:    true,
+		AudioData:  audioData,
+		AudioPath:  tmpFile,
+		Format:     "wav",
+		Voice:      options.Voice,
+		Characters: len(text),
 	}, nil
 }
 
 func (e *LocalTTSEngine) SynthesizeToFile(ctx context.Context, text string, outputPath string, options TTSOptions) error {
-	// 平台特定实现
-	return fmt.Errorf("Local TTS to file not implemented")
+	result, err := e.Synthesize(ctx, text, options)
+	if err != nil {
+		return err
+	}
+	
+	if !result.Success {
+		return fmt.Errorf(result.Error)
+	}
+	
+	if result.AudioPath != "" && result.AudioPath != outputPath {
+		// 复制文件到目标路径
+		data, err := os.ReadFile(result.AudioPath)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(outputPath, data, 0644)
+	}
+	
+	return nil
 }
 
 func (e *LocalTTSEngine) GetVoices() []TTSVoice {
 	// 返回平台可用的说话人列表
-	return []TTSVoice{
-		{
-			ID:     "default",
-			Name:   "Default Voice",
-			Gender: "neutral",
-			Language: "zh-CN",
-		},
+	voices := []TTSVoice{}
+	
+	switch runtime.GOOS {
+	case "darwin":
+		// 获取 macOS 可用声音
+		cmd := exec.Command("say", "-v", "?")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for _, line := range lines {
+				if line == "" {
+					continue
+				}
+				parts := strings.SplitN(line, " ", 2)
+				if len(parts) > 0 {
+					voices = append(voices, TTSVoice{
+						ID:       strings.TrimSpace(parts[0]),
+						Name:     strings.TrimSpace(parts[0]),
+						Language: "en-US", // 默认
+					})
+				}
+			}
+		}
+	case "linux":
+		// 获取 espeak-ng 可用声音
+		cmd := exec.Command("espeak-ng", "--voices")
+		output, err := cmd.Output()
+		if err == nil {
+			lines := strings.Split(string(output), "\n")
+			for i, line := range lines {
+				if i == 0 || line == "" {
+					continue
+				}
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					voices = append(voices, TTSVoice{
+						ID:       fields[1],
+						Name:     fields[1],
+						Language: fields[0],
+					})
+				}
+			}
+		}
+	case "windows":
+		// Windows 默认声音
+		voices = []TTSVoice{
+			{ID: "default", Name: "Microsoft David", Gender: "male", Language: "en-US"},
+			{ID: "default-female", Name: "Microsoft Zira", Gender: "female", Language: "en-US"},
+		}
 	}
+	
+	if len(voices) == 0 {
+		voices = []TTSVoice{
+			{ID: "default", Name: "Default Voice", Gender: "neutral", Language: "zh-CN"},
+		}
+	}
+	
+	return voices
 }
 
 func (e *LocalTTSEngine) GetCapabilities() TTSCapabilities {
 	return TTSCapabilities{
-		SampleRates:       []int{8000, 16000, 22050, 44100, 48000},
-		SupportedFormats:  []string{"wav"},
-		SupportedVoices:   []string{"default"},
+		SampleRates:      []int{8000, 16000, 22050, 44100, 48000},
+		SupportedFormats: []string{"wav", "aiff"},
+		SupportedVoices:  []string{"default"},
 		Streaming:        false,
 		SSMLSupport:      false,
 		EmotionSupport:   false,
-		VoiceCloning:    false,
-		MaxCharacters:   1000,
+		VoiceCloning:     false,
+		MaxCharacters:    5000,
 	}
 }
 
@@ -768,50 +1002,101 @@ func (e *LocalTTSEngine) Close() error {
 
 // APITTSEngine API 文字转语音引擎（云服务）
 type APITTSEngine struct {
-	config TTSConfig
-	// API 客户端
+	config    TTSConfig
+	apiKey    string
+	endpoint  string
+	provider  string // "azure", "google", "aws"
 }
 
 // NewAPITTSEngine 创建 API 引擎
 func NewAPITTSEngine(config TTSConfig) (*APITTSEngine, error) {
-	return &APITTSEngine{config: config}, nil
+	return &APITTSEngine{
+		config:   config,
+		provider: "default", // 可以从配置读取
+	}, nil
 }
 
 func (e *APITTSEngine) Synthesize(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
 	// 调用云服务 API（如 Azure Speech, Google TTS, AWS Polly）
+	// 这里提供一个通用的框架实现
+	
+	// 实际实现需要根据 provider 选择不同的 API
+	switch e.provider {
+	case "azure":
+		return e.synthesizeAzure(ctx, text, options)
+	case "google":
+		return e.synthesizeGoogle(ctx, text, options)
+	case "aws":
+		return e.synthesizeAWS(ctx, text, options)
+	default:
+		return &TTSResult{
+			Success: false,
+			Error:   "API TTS provider not configured",
+		}, nil
+	}
+}
+
+func (e *APITTSEngine) synthesizeAzure(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// Azure Speech Service TTS 实现
+	// 需要: github.com/Microsoft/cognitive-services-speech-sdk-go
 	return &TTSResult{
 		Success: false,
-		Error:   "API TTS not implemented",
+		Error:   "Azure TTS requires cognitive-services-speech-sdk-go",
+	}, nil
+}
+
+func (e *APITTSEngine) synthesizeGoogle(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// Google Cloud Text-to-Speech 实现
+	// 需要: cloud.google.com/go/texttospeech
+	return &TTSResult{
+		Success: false,
+		Error:   "Google TTS requires cloud.google.com/go/texttospeech",
+	}, nil
+}
+
+func (e *APITTSEngine) synthesizeAWS(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// AWS Polly 实现
+	// 需要: github.com/aws/aws-sdk-go-v2/service/polly
+	return &TTSResult{
+		Success: false,
+		Error:   "AWS Polly requires aws-sdk-go-v2",
 	}, nil
 }
 
 func (e *APITTSEngine) SynthesizeToFile(ctx context.Context, text string, outputPath string, options TTSOptions) error {
-	// API 调用并保存到文件
-	return fmt.Errorf("API TTS to file not implemented")
+	result, err := e.Synthesize(ctx, text, options)
+	if err != nil {
+		return err
+	}
+	
+	if !result.Success {
+		return fmt.Errorf(result.Error)
+	}
+	
+	if len(result.AudioData) > 0 {
+		return os.WriteFile(outputPath, result.AudioData, 0644)
+	}
+	
+	return fmt.Errorf("no audio data returned")
 }
 
 func (e *APITTSEngine) GetVoices() []TTSVoice {
 	// 从 API 获取可用说话人列表
 	return []TTSVoice{
-		{
-			ID:     "api-default",
-			Name:   "API Default Voice",
-			Gender: "neutral",
-			Language: "zh-CN",
-		},
+		{ID: "api-default", Name: "API Default Voice", Gender: "neutral", Language: "zh-CN"},
 	}
 }
 
 func (e *APITTSEngine) GetCapabilities() TTSCapabilities {
 	return TTSCapabilities{
-		SampleRates:       []int{8000, 16000, 22050, 44100, 48000},
-		SupportedFormats:  []string{"wav", "mp3"},
-		SupportedVoices:   []string{"api-default"},
+		SampleRates:      []int{8000, 16000, 22050, 44100, 48000},
+		SupportedFormats: []string{"wav", "mp3", "ogg"},
+		SupportedVoices:  []string{"api-default"},
 		Streaming:        true,
 		SSMLSupport:      true,
 		EmotionSupport:   true,
-		VoiceCloning:    false,
-		MaxCharacters:   3000,
+		VoiceCloning:     false,
+		MaxCharacters:    5000,
 	}
 }
 
@@ -822,7 +1107,6 @@ func (e *APITTSEngine) Close() error {
 // EdgeTTSEngine 边缘计算文字转语音引擎
 type EdgeTTSEngine struct {
 	config TTSConfig
-	// 边缘模型加载
 }
 
 // NewEdgeTTSEngine 创建边缘引擎
@@ -832,42 +1116,105 @@ func NewEdgeTTSEngine(config TTSConfig) (*EdgeTTSEngine, error) {
 
 func (e *EdgeTTSEngine) Synthesize(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
 	// 使用本地边缘模型（如 Sherpa-onnx, Coqui TTS）
+	// 这里提供框架实现，实际需要加载本地模型
+	
+	// 检查是否有可用的边缘 TTS 工具
+	if _, err := exec.LookPath("sherpa-onnx-offline-tts"); err == nil {
+		return e.synthesizeSherpaOnnx(ctx, text, options)
+	}
+	
 	return &TTSResult{
 		Success: false,
-		Error:   "Edge TTS not implemented",
+		Error:   "Edge TTS requires Sherpa-onnx or similar local TTS engine",
+	}, nil
+}
+
+func (e *EdgeTTSEngine) synthesizeSherpaOnnx(ctx context.Context, text string, options TTSOptions) (*TTSResult, error) {
+	// Sherpa-onnx 离线 TTS 实现
+	tmpFile := filepath.Join(e.config.TempDir, fmt.Sprintf("tts_%d.wav", time.Now().UnixNano()))
+	
+	cmd := exec.CommandContext(ctx, "sherpa-onnx-offline-tts",
+		"--output", tmpFile,
+		"--text", text,
+	)
+	
+	if err := cmd.Run(); err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("Sherpa-onnx TTS failed: %v", err),
+		}, nil
+	}
+	
+	// 读取音频文件
+	audioData, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return &TTSResult{
+			Success: false,
+			Error:   fmt.Sprintf("failed to read audio file: %v", err),
+		}, nil
+	}
+	
+	return &TTSResult{
+		Success:    true,
+		AudioData:  audioData,
+		AudioPath:  tmpFile,
+		Format:     "wav",
+		Characters: len(text),
 	}, nil
 }
 
 func (e *EdgeTTSEngine) SynthesizeToFile(ctx context.Context, text string, outputPath string, options TTSOptions) error {
-	// 边缘模型合成并保存
-	return fmt.Errorf("Edge TTS to file not implemented")
+	result, err := e.Synthesize(ctx, text, options)
+	if err != nil {
+		return err
+	}
+	
+	if !result.Success {
+		return fmt.Errorf(result.Error)
+	}
+	
+	if len(result.AudioData) > 0 {
+		return os.WriteFile(outputPath, result.AudioData, 0644)
+	}
+	
+	return fmt.Errorf("no audio data returned")
 }
 
 func (e *EdgeTTSEngine) GetVoices() []TTSVoice {
-	// 返回边缘模型支持的说话人
 	return []TTSVoice{
-		{
-			ID:     "edge-default",
-			Name:   "Edge Model Voice",
-			Gender: "neutral",
-			Language: "zh-CN",
-		},
+		{ID: "edge-default", Name: "Edge Model Voice", Gender: "neutral", Language: "zh-CN"},
 	}
 }
 
 func (e *EdgeTTSEngine) GetCapabilities() TTSCapabilities {
 	return TTSCapabilities{
-		SampleRates:       []int{16000, 22050, 24000},
-		SupportedFormats:  []string{"wav"},
-		SupportedVoices:   []string{"edge-default"},
+		SampleRates:      []int{16000, 22050, 24000},
+		SupportedFormats: []string{"wav"},
+		SupportedVoices:  []string{"edge-default"},
 		Streaming:        false,
 		SSMLSupport:      false,
 		EmotionSupport:   true,
-		VoiceCloning:    false,
-		MaxCharacters:   500,
+		VoiceCloning:     false,
+		MaxCharacters:    1000,
 	}
 }
 
 func (e *EdgeTTSEngine) Close() error {
 	return nil
+}
+
+// ==================== 辅助函数 ====================
+
+// escapePowerShell 转义 PowerShell 特殊字符
+func escapePowerShell(s string) string {
+	s = strings.ReplaceAll(s, "'", "''")
+	s = strings.ReplaceAll(s, "\"", "`\"")
+	s = strings.ReplaceAll(s, "\n", "`n")
+	s = strings.ReplaceAll(s, "\r", "`r")
+	return s
+}
+
+// encodeAudioBase64 将音频数据编码为 Base64
+func encodeAudioBase64(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
 }

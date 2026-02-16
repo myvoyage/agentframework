@@ -203,7 +203,7 @@ func (d *ModbusDriver) writeSingleCoil(params map[string]interface{}) (interface
 		return nil, err
 	}
 
-	value, err := getBoolParam(params, "value")
+	value, err := GetBoolParam(params, "value")
 	if err != nil {
 		return nil, err
 	}
@@ -255,7 +255,7 @@ func (d *ModbusDriver) writeMultipleCoils(params map[string]interface{}) (interf
 		return nil, err
 	}
 
-	values, err := getBoolArrayParam(params, "values")
+	values, err := GetBoolArrayParam(params, "values")
 	if err != nil {
 		return nil, err
 	}
@@ -358,43 +358,6 @@ func getUint16Param(params map[string]interface{}, key string) (uint16, error) {
 	}
 
 	return uint16(f), nil
-}
-
-func getBoolParam(params map[string]interface{}, key string) (bool, error) {
-	value, ok := params[key]
-	if !ok {
-		return false, errors.New("missing parameter: " + key)
-	}
-
-	b, ok := value.(bool)
-	if !ok {
-		return false, errors.New("invalid parameter type for " + key)
-	}
-
-	return b, nil
-}
-
-func getBoolArrayParam(params map[string]interface{}, key string) ([]bool, error) {
-	value, ok := params[key]
-	if !ok {
-		return nil, errors.New("missing parameter: " + key)
-	}
-
-	arr, ok := value.([]interface{})
-	if !ok {
-		return nil, errors.New("invalid parameter type for " + key)
-	}
-
-	bools := make([]bool, len(arr))
-	for i, v := range arr {
-		b, ok := v.(bool)
-		if !ok {
-			return nil, errors.New("invalid element type at index " + string(i))
-		}
-		bools[i] = b
-	}
-
-	return bools, nil
 }
 
 func getUint16ArrayParam(params map[string]interface{}, key string) ([]uint16, error) {

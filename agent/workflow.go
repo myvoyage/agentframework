@@ -494,25 +494,33 @@ func createReActAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, m
 		maxIterations = int(maxIterFloat)
 	}
 
-	// Get tools from node config
-	var tools []tool.BaseTool
-	if toolNames, ok := nodeDef.Config["tools"].([]interface{}); ok {
-		// Tools are specified as a list of tool names
-		// In a full implementation, you would load these from a tool registry
-		// For now, we create an empty list and log that tools need to be loaded
-		tools = make([]tool.BaseTool, 0, len(toolNames))
-
-		// TODO: Load tools from a tool registry based on tool names
-		// Example:
-		// for _, toolNameInterface := range toolNames {
-		//     if toolName, ok := toolNameInterface.(string); ok {
-		//         tool := toolRegistry.GetTool(toolName)
-		//         if tool != nil {
-		//             tools = append(tools, tool)
-		//         }
-		//     }
-		// }
-	}
+		// Get tools from node config
+		var tools []tool.BaseTool
+		if toolNames, ok := nodeDef.Config["tools"].([]interface{}); ok {
+			// Tools are specified as a list of tool names
+			// Load tools from the global tool registry
+			registry := GetGlobalToolRegistry()
+			tools = make([]tool.BaseTool, 0, len(toolNames))
+			
+			for _, toolNameInterface := range toolNames {
+				if toolName, ok := toolNameInterface.(string); ok && toolName != "" {
+					t, err := registry.GetTool(toolName)
+					if err != nil {
+						// Log warning but continue with other tools
+						println(fmt.Sprintf("Warning: failed to load tool '%s': %v", toolName, err))
+						continue
+					}
+					if t != nil {
+						tools = append(tools, t)
+					}
+				}
+			}
+			
+			// If no tools were loaded, log a message
+			if len(tools) == 0 && len(toolNames) > 0 {
+				println(fmt.Sprintf("Warning: none of the specified tools were loaded: %v", toolNames))
+			}
+		}
 
 	// Get memory options from node config
 	memoryOpts := MemoryOptions{

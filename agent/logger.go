@@ -71,6 +71,7 @@ func DefaultLoggerConfig() LoggerConfig {
 
 // Logger represents a structured logger
 // It provides methods for logging at different levels with context
+// NOTE: This interface is designed for dependency injection to eliminate global variables
 
 type Logger interface {
 	// Debug logs a debug message

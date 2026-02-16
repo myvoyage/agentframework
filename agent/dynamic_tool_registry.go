@@ -33,6 +33,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,140 @@ import (
 	"github.com/cloudwego/eino/schema"
 	"github.com/fsnotify/fsnotify"
 )
+
+// RegisterTool registers a tool in the registry
+func (r *DynamicToolRegistry) RegisterTool(t tool.BaseTool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	info, err := t.Info(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get tool info: %w", err)
+	}
+	
+	if _, exists := r.tools[info.Name]; exists {
+		return fmt.Errorf("tool '%s' already registered", info.Name)
+	}
+	
+	r.tools[info.Name] = t
+	
+	// Clear cache for this tool
+	if r.enableCache {
+		delete(r.cache, info.Name)
+	}
+	
+	return nil
+}
+
+// GetTool retrieves a tool by name and version
+func (r *DynamicToolRegistry) GetTool(name string, version string) (tool.BaseTool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	t, exists := r.tools[name]
+	if !exists {
+		return nil, fmt.Errorf("tool '%s' not found", name)
+	}
+	
+	return t, nil
+}
+
+// ListTools returns all registered tools
+func (r *DynamicToolRegistry) ListTools() []tool.BaseTool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	tools := make([]tool.BaseTool, 0, len(r.tools))
+	for _, t := range r.tools {
+		tools = append(tools, t)
+	}
+	
+	return tools
+}
+
+// GetToolSpec returns the specification for a tool
+func (r *DynamicToolRegistry) GetToolSpec(name string) (*schema.ToolInfo, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	// Check cache first
+	if r.enableCache {
+		if cached, exists := r.cache[name]; exists {
+			return cached, nil
+		}
+	}
+	
+	t, exists := r.tools[name]
+	if !exists {
+		return nil, fmt.Errorf("tool '%s' not found", name)
+	}
+	
+	info, err := t.Info(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tool info: %w", err)
+	}
+	
+	// Cache the result
+	if r.enableCache {
+		r.cache[name] = info
+	}
+	
+	return info, nil
+}
+
+// LoadBuiltinTools loads built-in tools into the registry
+// This is called during initialization to populate the registry with common tools
+func (r *DynamicToolRegistry) LoadBuiltinTools(ctx context.Context) error {
+	// For now, we'll register a placeholder tool to demonstrate the functionality
+	// In a full implementation, this would register actual built-in tools
+	// like web search, file operations, code execution, etc.
+	
+	// Example: Register a simple echo tool
+	echoTool := &echoTool{
+		name:        "echo",
+		description: "Echoes back the input text",
+	}
+	
+	if err := r.RegisterTool(echoTool); err != nil {
+		return fmt.Errorf("failed to register echo tool: %w", err)
+	}
+	
+	// Log that built-in tools are loaded
+	// In production, this would register all built-in tools from pkg/tools/sandbox
+	
+	return nil
+}
+
+// echoTool is a simple built-in tool for demonstration
+// In production, this would be replaced with actual built-in tools
+ type echoTool struct {
+	name        string
+	description string
+}
+
+func (t *echoTool) Info(ctx context.Context) (*schema.ToolInfo, error) {
+	return &schema.ToolInfo{
+		Name: t.name,
+		Desc: t.description,
+		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
+			"text": {
+				Type:        "string",
+				Desc:        "Text to echo back",
+				Required:    true,
+			},
+		}),
+	}, nil
+}
+
+func (t *echoTool) Invoke(ctx context.Context, input string) (string, error) {
+	var args struct {
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal([]byte(input), &args); err != nil {
+		return "", fmt.Errorf("failed to parse args: %w", err)
+	}
+	return fmt.Sprintf("Echo: %s", args.Text), nil
+}
 
 // ToolSource 工具来源信息
 type ToolSource struct {

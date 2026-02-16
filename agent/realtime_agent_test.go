@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"AgentFramework/pkg/beads/context"
+	beadscontext "AgentFramework/pkg/beads/context"
 	"AgentFramework/pkg/beads/stream"
 )
 
@@ -66,7 +66,7 @@ func TestRealTimeAgent(t *testing.T) {
 	})
 
 	t.Run("PublishEvent", func(t *testing.T) {
-		event := Event{
+		event := RealTimeEvent{
 			Type:      "test_event",
 			Timestamp: time.Now(),
 			Data: map[string]interface{}{
@@ -84,7 +84,7 @@ func TestRealTimeAgent(t *testing.T) {
 	t.Run("SubscribeEvents", func(t *testing.T) {
 		eventReceived := false
 
-		handler := func(ctx context.Context, event Event) {
+		handler := func(ctx context.Context, event RealTimeEvent) {
 			if event.Type == "test_subscription" {
 				eventReceived = true
 			}
@@ -96,7 +96,7 @@ func TestRealTimeAgent(t *testing.T) {
 		}
 
 		// 发布事件
-		event := Event{
+		event := RealTimeEvent{
 			Type:      "test_subscription",
 			Timestamp: time.Now(),
 			Data:      map[string]interface{}{},
@@ -146,7 +146,7 @@ func TestRealTimeAgent(t *testing.T) {
 // TestRealTimeContext 测试实时上下文
 func TestRealTimeContext(t *testing.T) {
 	ctx := context.Background()
-	rtc := context.NewRealTimeContext(100, 5*time.Minute)
+	rtc := beadscontext.NewRealTimeContext(100, 5*time.Minute)
 
 	t.Run("SetAndGet", func(t *testing.T) {
 		key := "test_key"
@@ -194,7 +194,7 @@ func TestRealTimeContext(t *testing.T) {
 		rtc.Set(ctx, "item1", map[string]interface{}{"name": "item1", "value": 100})
 		rtc.Set(ctx, "item2", map[string]interface{}{"name": "item2", "value": 200})
 
-		query := &context.Query{
+		query := &beadscontext.Query{
 			Filter: func(data interface{}) bool {
 				if m, ok := data.(map[string]interface{}); ok {
 					if val, exists := m["value"]; exists {
@@ -277,7 +277,7 @@ func BenchmarkRealTimeAgent(b *testing.B) {
 // BenchmarkRealTimeContext 性能测试
 func BenchmarkRealTimeContext(b *testing.B) {
 	ctx := context.Background()
-	rtc := context.NewRealTimeContext(10000, 5*time.Minute)
+	rtc := beadscontext.NewRealTimeContext(10000, 5*time.Minute)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

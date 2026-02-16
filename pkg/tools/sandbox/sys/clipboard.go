@@ -5,11 +5,18 @@
 package sys
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
@@ -386,7 +393,7 @@ func (m *ClipboardModule) readContent(format string) (map[string]any, error) {
 		size = int64(len(content))
 		mimeType = "text/plain"
 	case "image":
-		var data []string
+		var data []byte
 		data, mimeType, err = m.clipboard.GetImage()
 		if err != nil {
 			return map[string]any{
@@ -394,8 +401,8 @@ func (m *ClipboardModule) readContent(format string) (map[string]any, error) {
 				"error":   fmt.Sprintf("Failed to read image: %v", err),
 			}, nil
 		}
-		content = data[0]
-		size = int64(len(content))
+		content = base64.StdEncoding.EncodeToString(data)
+		size = int64(len(data))
 	case "auto":
 		// 先尝试读取文本
 		content, err = m.clipboard.GetText()
@@ -405,11 +412,11 @@ func (m *ClipboardModule) readContent(format string) (map[string]any, error) {
 			break
 		}
 		// 尝试读取图片
-		var data []string
+		var data []byte
 		data, mimeType, err = m.clipboard.GetImage()
 		if err == nil {
-			content = data[0]
-			size = int64(len(content))
+			content = base64.StdEncoding.EncodeToString(data)
+			size = int64(len(data))
 		}
 	default:
 		return map[string]any{
@@ -577,7 +584,7 @@ func (m *ClipboardModule) monitorClipboard() {
 
 // WindowsClipboard Windows 剪贴板实现
 type WindowsClipboard struct {
-	// Windows 特定字段
+	watching bool
 }
 
 func NewWindowsClipboard() (*WindowsClipboard, error) {
@@ -585,42 +592,102 @@ func NewWindowsClipboard() (*WindowsClipboard, error) {
 }
 
 func (c *WindowsClipboard) GetText() (string, error) {
-	// Windows API 调用实现
-	return "", fmt.Errorf("not implemented")
+	// 使用 PowerShell 获取剪贴板内容
+	cmd := exec.Command("powershell", "-command", "Get-Clipboard")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get clipboard text: %w", err)
+	}
+	return strings.TrimRight(string(output), "\r\n"), nil
 }
 
 func (c *WindowsClipboard) SetText(text string) error {
-	// Windows API 调用实现
-	return fmt.Errorf("not implemented")
+	// 使用 PowerShell 设置剪贴板内容
+	cmd := exec.Command("powershell", "-command", "Set-Clipboard", "-Value", text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set clipboard text: %w", err)
+	}
+	return nil
 }
 
 func (c *WindowsClipboard) GetImage() ([]byte, string, error) {
-	// Windows API 调用实现
-	return nil, "", fmt.Errorf("not implemented")
+	// Windows 获取图片：使用 PowerShell 获取剪贴板图片
+	cmd := exec.Command("powershell", "-command", `
+		Add-Type -AssemblyName System.Windows.Forms
+		Add-Type -AssemblyName System.Drawing
+		$img = [Windows.Forms.Clipboard]::GetImage()
+		if ($img -ne $null) {
+			$ms = New-Object System.IO.MemoryStream
+			$img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+			[Convert]::ToBase64String($ms.ToArray())
+		}
+	`)
+	output, err := cmd.Output()
+	if err != nil || len(output) == 0 {
+		return nil, "", fmt.Errorf("no image in clipboard or failed to get: %w", err)
+	}
+	
+	// Base64 解码
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(output)))
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to decode image: %w", err)
+	}
+	return decoded, "image/png", nil
 }
 
 func (c *WindowsClipboard) SetImage(data []byte, mimeType string) error {
-	// Windows API 调用实现
-	return fmt.Errorf("not implemented")
+	// 将图片保存到临时文件并设置到剪贴板
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("clipboard_img_%d.png", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp image: %w", err)
+	}
+	defer os.Remove(tmpFile)
+	
+	cmd := exec.Command("powershell", "-command", `
+		Add-Type -AssemblyName System.Windows.Forms
+		Add-Type -AssemblyName System.Drawing
+		$img = [System.Drawing.Image]::FromFile("`+tmpFile+`")
+		[Windows.Forms.Clipboard]::SetImage($img)
+	`)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set clipboard image: %w", err)
+	}
+	return nil
 }
 
 func (c *WindowsClipboard) Clear() error {
-	// Windows API 调用实现
-	return fmt.Errorf("not implemented")
+	cmd := exec.Command("powershell", "-command", "Set-Clipboard", "-Value", "")
+	return cmd.Run()
 }
 
 func (c *WindowsClipboard) WatchChanges(callback func(string)) error {
-	// Windows API 调用实现
-	return fmt.Errorf("not implemented")
+	c.watching = true
+	// Windows 剪贴板监控需要使用 Win32 API 或轮询
+	// 这里使用简单的轮询方式
+	lastContent := ""
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for c.watching {
+			<-ticker.C
+			content, err := c.GetText()
+			if err == nil && content != lastContent {
+				lastContent = content
+				callback(content)
+			}
+		}
+	}()
+	return nil
 }
 
 func (c *WindowsClipboard) StopWatching() error {
+	c.watching = false
 	return nil
 }
 
 // MacOSClipboard macOS 剪贴板实现
 type MacOSClipboard struct {
-	// macOS 特定字段
+	watching bool
 }
 
 func NewMacOSClipboard() (*MacOSClipboard, error) {
@@ -628,70 +695,192 @@ func NewMacOSClipboard() (*MacOSClipboard, error) {
 }
 
 func (c *MacOSClipboard) GetText() (string, error) {
-	// macOS API 调用实现（使用 pbpaste 命令）
-	return "", fmt.Errorf("not implemented")
+	// 使用 pbpaste 命令获取剪贴板内容
+	cmd := exec.Command("pbpaste")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get clipboard text: %w", err)
+	}
+	return string(output), nil
 }
 
 func (c *MacOSClipboard) SetText(text string) error {
-	// macOS API 调用实现（使用 pbcopy 命令）
-	return fmt.Errorf("not implemented")
+	// 使用 pbcopy 命令设置剪贴板内容
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set clipboard text: %w", err)
+	}
+	return nil
 }
 
 func (c *MacOSClipboard) GetImage() ([]byte, string, error) {
-	return nil, "", fmt.Errorf("not implemented")
+	// macOS 使用 osascript 获取剪贴板图片
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("clipboard_img_%d.png", time.Now().UnixNano()))
+	
+	cmd := exec.Command("osascript", "-e", `
+		tell application "System Events"
+			set theData to the clipboard as «class PNGf»
+			set theFile to open for access (POSIX file "`+tmpFile+`") with write permission
+			write theData to theFile
+			close access theFile
+		end tell
+	`)
+	if err := cmd.Run(); err != nil {
+		return nil, "", fmt.Errorf("failed to get clipboard image: %w", err)
+	}
+	defer os.Remove(tmpFile)
+	
+	data, err := os.ReadFile(tmpFile)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to read temp image: %w", err)
+	}
+	return data, "image/png", nil
 }
 
 func (c *MacOSClipboard) SetImage(data []byte, mimeType string) error {
-	return fmt.Errorf("not implemented")
+	// 将图片保存并设置到剪贴板
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("clipboard_img_%d.png", time.Now().UnixNano()))
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write temp image: %w", err)
+	}
+	defer os.Remove(tmpFile)
+	
+	cmd := exec.Command("osascript", "-e", `
+		set theFile to POSIX file "`+tmpFile+`"
+		set theData to read theFile as «class PNGf»
+		set the clipboard to theData
+	`)
+	return cmd.Run()
 }
 
 func (c *MacOSClipboard) Clear() error {
-	return fmt.Errorf("not implemented")
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = strings.NewReader("")
+	return cmd.Run()
 }
 
 func (c *MacOSClipboard) WatchChanges(callback func(string)) error {
-	return fmt.Errorf("not implemented")
+	c.watching = true
+	lastContent := ""
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for c.watching {
+			<-ticker.C
+			content, err := c.GetText()
+			if err == nil && content != lastContent {
+				lastContent = content
+				callback(content)
+			}
+		}
+	}()
+	return nil
 }
 
 func (c *MacOSClipboard) StopWatching() error {
+	c.watching = false
 	return nil
 }
 
 // LinuxClipboard Linux 剪贴板实现
 type LinuxClipboard struct {
-	// Linux 特定字段
+	watching bool
 }
 
 func NewLinuxClipboard() (*LinuxClipboard, error) {
+	// 检查 xclip 或 xsel 是否可用
+	if _, err := exec.LookPath("xclip"); err != nil {
+		if _, err := exec.LookPath("xsel"); err != nil {
+			return nil, fmt.Errorf("neither xclip nor xsel is available")
+		}
+	}
 	return &LinuxClipboard{}, nil
 }
 
 func (c *LinuxClipboard) GetText() (string, error) {
-	// Linux 实现使用 xclip 或 xsel 命令
-	return "", fmt.Errorf("not implemented")
+	// 优先使用 xclip
+	if _, err := exec.LookPath("xclip"); err == nil {
+		cmd := exec.Command("xclip", "-selection", "clipboard", "-o")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("failed to get clipboard text: %w", err)
+		}
+		return string(output), nil
+	}
+	
+	// 使用 xsel
+	cmd := exec.Command("xsel", "--clipboard", "--output")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get clipboard text: %w", err)
+	}
+	return string(output), nil
 }
 
 func (c *LinuxClipboard) SetText(text string) error {
-	// Linux 实现使用 xclip 或 xsel 命令
-	return fmt.Errorf("not implemented")
+	// 优先使用 xclip
+	if _, err := exec.LookPath("xclip"); err == nil {
+		cmd := exec.Command("xclip", "-selection", "clipboard")
+		cmd.Stdin = strings.NewReader(text)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to set clipboard text: %w", err)
+		}
+		return nil
+	}
+	
+	// 使用 xsel
+	cmd := exec.Command("xsel", "--clipboard", "--input")
+	cmd.Stdin = strings.NewReader(text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set clipboard text: %w", err)
+	}
+	return nil
 }
 
 func (c *LinuxClipboard) GetImage() ([]byte, string, error) {
-	return nil, "", fmt.Errorf("not implemented")
+	// Linux 使用 xclip 获取图片
+	cmd := exec.Command("xclip", "-selection", "clipboard", "-t", "image/png", "-o")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to get clipboard image: %w", err)
+	}
+	return output, "image/png", nil
 }
 
 func (c *LinuxClipboard) SetImage(data []byte, mimeType string) error {
-	return fmt.Errorf("not implemented")
+	// 使用 xclip 设置图片
+	cmd := exec.Command("xclip", "-selection", "clipboard", "-t", mimeType, "-i")
+	cmd.Stdin = bytes.NewReader(data)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to set clipboard image: %w", err)
+	}
+	return nil
 }
 
 func (c *LinuxClipboard) Clear() error {
-	return fmt.Errorf("not implemented")
+	return c.SetText("")
 }
 
 func (c *LinuxClipboard) WatchChanges(callback func(string)) error {
-	return fmt.Errorf("not implemented")
+	c.watching = true
+	lastContent := ""
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		for c.watching {
+			<-ticker.C
+			content, err := c.GetText()
+			if err == nil && content != lastContent {
+				lastContent = content
+				callback(content)
+			}
+		}
+	}()
+	return nil
 }
 
 func (c *LinuxClipboard) StopWatching() error {
+	c.watching = false
 	return nil
 }

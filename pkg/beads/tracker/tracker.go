@@ -1096,8 +1096,59 @@ func (tt *TaskTrackerImpl) DissociateContext(ctx context.Context, taskID, contex
 		return fmt.Errorf("context store not enabled")
 	}
 
-	// TODO: 实现解除关联的逻辑
-	return fmt.Errorf("DissociateContext not yet implemented")
+	// 使用类型断言调用 DissociateContext 方法
+	type dissociateCtx interface {
+		DissociateContext(ctx context.Context, taskID, contextID string) error
+	}
+
+	store, ok := tt.contextStore.(dissociateCtx)
+	if !ok {
+		// 如果 context store 不支持 DissociateContext，我们仍然可以从任务元数据中移除
+		tt.mu.RUnlock()
+		return tt.removeContextFromTaskMetadata(ctx, taskID)
+	}
+
+	// Dissociate through context store
+	if err := store.DissociateContext(ctx, taskID, contextID); err != nil {
+		return fmt.Errorf("dissociate context failed: %w", err)
+	}
+
+	// Update task metadata to remove context reference
+	tt.mu.RUnlock()
+	return tt.removeContextFromTaskMetadata(ctx, taskID)
+}
+
+// removeContextFromTaskMetadata removes context ID from task metadata
+func (tt *TaskTrackerImpl) removeContextFromTaskMetadata(ctx context.Context, taskID string) error {
+	tt.mu.Lock()
+	defer tt.mu.Unlock()
+
+	// Get current task
+	task, err := tt.getTaskNoLock(ctx, taskID)
+	if err != nil {
+		return err
+	}
+
+	// Remove context ID from metadata if exists
+	if task.Metadata != nil {
+		delete(task.Metadata, "openviking_context_id")
+	}
+
+	// Update task
+	update := beads.TaskUpdate{
+		Metadata: &task.Metadata,
+	}
+
+	return tt.updateTaskNoLock(ctx, taskID, update)
+}
+
+// Helper methods without lock (must be called with lock held)
+func (tt *TaskTrackerImpl) getTaskNoLock(ctx context.Context, taskID string) (*beads.Task, error) {
+	return tt.GetTask(ctx, taskID)
+}
+
+func (tt *TaskTrackerImpl) updateTaskNoLock(ctx context.Context, taskID string, update beads.TaskUpdate) error {
+	return tt.UpdateTask(ctx, taskID, update)
 }
 
 // SetContextStore sets the context store for this tracker

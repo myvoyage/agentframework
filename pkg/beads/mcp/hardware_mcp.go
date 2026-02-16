@@ -9,6 +9,7 @@ import (
 
 	"AgentFramework/agent"
 	"AgentFramework/pkg/beads/hardware"
+	"AgentFramework/pkg/beads/hardware/drivers"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -182,6 +183,200 @@ func (t *HardwareMCPTools) RegisterTools(s *server.MCPServer) {
 			Required: []string{"sequence"},
 		},
 	}, t.handleExecuteCommandSequence)
+
+	// ===== CAN Bus Tools =====
+
+	// CANSendFrame tool
+	s.AddTool(mcp.Tool{
+		Name:        "can_send_frame",
+		Description: "Send a CAN message frame to the bus",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "CAN device identifier",
+				},
+				"id": map[string]interface{}{
+					"type":        "number",
+					"description": "CAN frame ID (11-bit standard or 29-bit extended)",
+				},
+				"data": map[string]interface{}{
+					"type":        "array",
+					"description": "Frame data bytes (0-8 for standard CAN, 0-64 for CAN FD)",
+					"items": map[string]interface{}{
+						"type": "number",
+					},
+				},
+				"is_extended": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Use extended 29-bit frame ID",
+				},
+				"is_remote": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Remote transmission request frame",
+				},
+			},
+			Required: []string{"device_id", "id"},
+		},
+	}, t.handleCANSendFrame)
+
+	// CANReceiveFrame tool
+	s.AddTool(mcp.Tool{
+		Name:        "can_receive_frame",
+		Description: "Receive a CAN message frame from the bus",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "CAN device identifier",
+				},
+				"timeout_ms": map[string]interface{}{
+					"type":        "number",
+					"description": "Receive timeout in milliseconds (default: 5000)",
+				},
+			},
+			Required: []string{"device_id"},
+		},
+	}, t.handleCANReceiveFrame)
+
+	// CANSetFilter tool
+	s.AddTool(mcp.Tool{
+		Name:        "can_set_filter",
+		Description: "Set a CAN message filter for reception",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "CAN device identifier",
+				},
+				"filter_id": map[string]interface{}{
+					"type":        "number",
+					"description": "Filter ID",
+				},
+				"mask": map[string]interface{}{
+					"type":        "number",
+					"description": "Filter mask",
+				},
+			},
+			Required: []string{"device_id", "filter_id", "mask"},
+		},
+	}, t.handleCANSetFilter)
+
+	// ===== GPIO Tools =====
+
+	// GPIOReadPin tool
+	s.AddTool(mcp.Tool{
+		Name:        "gpio_read_pin",
+		Description: "Read the value of a GPIO pin",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "GPIO device identifier",
+				},
+				"pin": map[string]interface{}{
+					"type":        "number",
+					"description": "GPIO pin number",
+				},
+			},
+			Required: []string{"device_id", "pin"},
+		},
+	}, t.handleGPIOReadPin)
+
+	// GPIOWritePin tool
+	s.AddTool(mcp.Tool{
+		Name:        "gpio_write_pin",
+		Description: "Write a value to a GPIO pin",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "GPIO device identifier",
+				},
+				"pin": map[string]interface{}{
+					"type":        "number",
+					"description": "GPIO pin number",
+				},
+				"value": map[string]interface{}{
+					"type":        "number",
+					"description": "Pin value (0 or 1)",
+				},
+			},
+			Required: []string{"device_id", "pin", "value"},
+		},
+	}, t.handleGPIOWritePin)
+
+	// GPIOSetupPin tool
+	s.AddTool(mcp.Tool{
+		Name:        "gpio_setup_pin",
+		Description: "Configure a GPIO pin direction and options",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "GPIO device identifier",
+				},
+				"pin": map[string]interface{}{
+					"type":        "number",
+					"description": "GPIO pin number",
+				},
+				"direction": map[string]interface{}{
+					"type":        "string",
+					"description": "Pin direction (in, out, high, low)",
+					"enum":        []string{"in", "out", "high", "low"},
+				},
+				"active_low": map[string]interface{}{
+					"type":        "boolean",
+					"description": "Active low configuration",
+				},
+				"pull": map[string]interface{}{
+					"type":        "string",
+					"description": "Pull resistor (up, down, off)",
+					"enum":        []string{"up", "down", "off"},
+				},
+				"edge": map[string]interface{}{
+					"type":        "string",
+					"description": "Edge detection (none, rising, falling, both)",
+					"enum":        []string{"none", "rising", "falling", "both"},
+				},
+			},
+			Required: []string{"device_id", "pin", "direction"},
+		},
+	}, t.handleGPIOSetupPin)
+
+	// GPIOSetPWM tool
+	s.AddTool(mcp.Tool{
+		Name:        "gpio_set_pwm",
+		Description: "Configure PWM on a GPIO pin",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]interface{}{
+				"device_id": map[string]interface{}{
+					"type":        "string",
+					"description": "GPIO device identifier",
+				},
+				"pin": map[string]interface{}{
+					"type":        "number",
+					"description": "GPIO pin number",
+				},
+				"period": map[string]interface{}{
+					"type":        "number",
+					"description": "PWM period in nanoseconds",
+				},
+				"duty_cycle": map[string]interface{}{
+					"type":        "number",
+					"description": "PWM duty cycle in nanoseconds",
+				},
+			},
+			Required: []string{"device_id", "pin", "period", "duty_cycle"},
+		},
+	}, t.handleGPIOSetPWM)
 }
 
 func (t *HardwareMCPTools) handleConnectDevice(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -208,6 +403,43 @@ func (t *HardwareMCPTools) handleConnectDevice(ctx context.Context, request mcp.
 		if err == nil {
 			configData = modbusConfig
 		}
+	case "can":
+		// Parse CAN configuration
+		canConfig := &drivers.CANDeviceConfig{}
+		if iface, ok := config["interface"].(string); ok {
+			canConfig.Interface = iface
+		} else {
+			canConfig.Interface = "can0"
+		}
+		if baudRate, ok := config["baud_rate"].(float64); ok {
+			canConfig.BaudRate = int(baudRate)
+		} else {
+			canConfig.BaudRate = 500000
+		}
+		if timeout, ok := config["timeout"].(float64); ok {
+			canConfig.Timeout = int(timeout)
+		}
+		if enableFD, ok := config["enable_fd"].(bool); ok {
+			canConfig.EnableFD = enableFD
+		}
+		configData = canConfig
+	case "gpio":
+		// Parse GPIO configuration
+		gpioConfig := &drivers.GPIODeviceConfig{}
+		if chip, ok := config["chip"].(string); ok {
+			gpioConfig.Chip = chip
+		} else {
+			gpioConfig.Chip = "gpiochip0"
+		}
+		if pinCount, ok := config["pin_count"].(float64); ok {
+			gpioConfig.PinCount = int(pinCount)
+		} else {
+			gpioConfig.PinCount = 28
+		}
+		if platform, ok := config["platform"].(string); ok {
+			gpioConfig.Platform = platform
+		}
+		configData = gpioConfig
 	default:
 		configData = config
 	}
@@ -327,6 +559,162 @@ func (t *HardwareMCPTools) handleExecuteCommandSequence(ctx context.Context, req
 	result, err := t.agent.ExecuteCommand(ctx, commandSequence)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to execute command sequence: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+// ===== CAN Bus Handlers =====
+
+func (t *HardwareMCPTools) handleCANSendFrame(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	id, _ := request.Params.Arguments["id"].(float64)
+
+	var data []interface{}
+	if dataInterface, ok := request.Params.Arguments["data"]; ok {
+		data, _ = dataInterface.([]interface{})
+	}
+
+	isExtended, _ := request.Params.Arguments["is_extended"].(bool)
+	isRemote, _ := request.Params.Arguments["is_remote"].(bool)
+
+	params := map[string]interface{}{
+		"id":          uint32(id),
+		"data":        data,
+		"is_extended": isExtended,
+		"is_remote":   isRemote,
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "send_frame", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to send CAN frame: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+func (t *HardwareMCPTools) handleCANReceiveFrame(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+
+	timeout := 5000 * time.Millisecond
+	if timeoutMs, ok := request.Params.Arguments["timeout_ms"].(float64); ok {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+
+	data, err := t.agent.ReceiveData(ctx, deviceID, timeout)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to receive CAN frame: %v", err)), nil
+	}
+
+	dataJSON, _ := json.MarshalIndent(data, "", "  ")
+	return mcp.NewToolResultText(string(dataJSON)), nil
+}
+
+func (t *HardwareMCPTools) handleCANSetFilter(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	filterID, _ := request.Params.Arguments["filter_id"].(float64)
+	mask, _ := request.Params.Arguments["mask"].(float64)
+
+	params := map[string]interface{}{
+		"id":   uint32(filterID),
+		"mask": uint32(mask),
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "set_filter", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to set CAN filter: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+// ===== GPIO Handlers =====
+
+func (t *HardwareMCPTools) handleGPIOReadPin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	pin, _ := request.Params.Arguments["pin"].(float64)
+
+	params := map[string]interface{}{
+		"pin": int(pin),
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "read_pin", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to read GPIO pin: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+func (t *HardwareMCPTools) handleGPIOWritePin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	pin, _ := request.Params.Arguments["pin"].(float64)
+	value, _ := request.Params.Arguments["value"].(float64)
+
+	params := map[string]interface{}{
+		"pin":   int(pin),
+		"value": int(value),
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "write_pin", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to write GPIO pin: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+func (t *HardwareMCPTools) handleGPIOSetupPin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	pin, _ := request.Params.Arguments["pin"].(float64)
+	direction, _ := request.Params.Arguments["direction"].(string)
+
+	params := map[string]interface{}{
+		"pin":       int(pin),
+		"direction": direction,
+	}
+
+	if activeLow, ok := request.Params.Arguments["active_low"].(bool); ok {
+		params["active_low"] = activeLow
+	}
+
+	if pull, ok := request.Params.Arguments["pull"].(string); ok {
+		params["pull"] = pull
+	}
+
+	if edge, ok := request.Params.Arguments["edge"].(string); ok {
+		params["edge"] = edge
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "setup_pin", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to setup GPIO pin: %v", err)), nil
+	}
+
+	resultJSON, _ := json.MarshalIndent(result, "", "  ")
+	return mcp.NewToolResultText(string(resultJSON)), nil
+}
+
+func (t *HardwareMCPTools) handleGPIOSetPWM(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	pin, _ := request.Params.Arguments["pin"].(float64)
+	period, _ := request.Params.Arguments["period"].(float64)
+	dutyCycle, _ := request.Params.Arguments["duty_cycle"].(float64)
+
+	params := map[string]interface{}{
+		"pin":        int(pin),
+		"period":     int(period),
+		"duty_cycle": int(dutyCycle),
+	}
+
+	result, err := t.agent.SendCommand(ctx, deviceID, "set_pwm", params)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("Failed to set GPIO PWM: %v", err)), nil
 	}
 
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")

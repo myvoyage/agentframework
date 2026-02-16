@@ -38,6 +38,12 @@ func (a *HardwareAgent) Initialize(ctx context.Context) error {
 	// Register default Modbus driver
 	a.driverManager.RegisterDriver("modbus", &drivers.ModbusDriver{})
 
+	// Register CAN bus driver
+	a.driverManager.RegisterDriver("can", &drivers.CANDriver{})
+
+	// Register GPIO driver
+	a.driverManager.RegisterDriver("gpio", &drivers.GPIODriver{})
+
 	return nil
 }
 

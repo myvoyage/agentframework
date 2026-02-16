@@ -174,3 +174,31 @@ func IsErrorCode(err error, code ErrorCode) bool {
 	}
 	return false
 }
+
+// NewValidationError creates a new validation error with the given message and details
+// This is a convenience function for creating validation errors commonly used in the framework
+func NewValidationError(message string, details map[string]interface{}) error {
+	return &AgentError{
+		Code:    ErrCodeInvalidInput,
+		Message: message,
+		Details: details,
+	}
+}
+
+// WrapError wraps an existing error with a new error message and optional details
+// This is a convenience function for wrapping errors commonly used in the framework
+func WrapError(err error, message string, details map[string]interface{}) error {
+	if err == nil {
+		return &AgentError{
+			Code:    ErrCodeInternal,
+			Message: message,
+			Details: details,
+		}
+	}
+	return &AgentError{
+		Code:    ErrCodeInternal,
+		Message: message,
+		Cause:   err,
+		Details: details,
+	}
+}

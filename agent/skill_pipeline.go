@@ -58,8 +58,11 @@ type SkillPipeline interface {
 	// AddDependency 添加技能步骤间的依赖关系
 	AddDependency(fromStepID, toStepID string) SkillPipeline
 
-	// Execute 执行技能管道，返回执行结果
+	// Execute 执行技能管道，返回执行结果（同步）
 	Execute(ctx context.Context, input map[string]interface{}) (*PipelineResult, error)
+
+	// ExecuteAsync 异步执行技能管道，返回结果通道
+	ExecuteAsync(ctx context.Context, input map[string]interface{}) (<-chan *PipelineResult, error)
 
 	// GetSteps 获取所有技能执行步骤
 	GetSteps() []*SkillStep
@@ -226,6 +229,47 @@ func (p *DefaultSkillPipeline) Execute(ctx context.Context, input map[string]int
 	}
 
 	return result, nil
+}
+
+// ExecuteAsync 异步执行技能管道，返回结果通道
+func (p *DefaultSkillPipeline) ExecuteAsync(ctx context.Context, input map[string]interface{}) (<-chan *PipelineResult, error) {
+	// 验证管道合法性
+	if err := p.Validate(); err != nil {
+		return nil, err
+	}
+
+	// 创建结果通道
+	resultCh := make(chan *PipelineResult, 1)
+
+	// 在 goroutine 中执行管道
+	go func() {
+		// 初始化执行上下文
+		execCtx := &executionContext{
+			pipeline: p,
+			input:    input,
+			results:  make(map[string]*StepResult),
+			state:    make(map[string]interface{}),
+		}
+
+		// 执行管道
+		result, err := execCtx.execute(ctx)
+		if err != nil {
+			// 返回错误结果
+			resultCh <- &PipelineResult{
+				Success:    false,
+				Steps:      nil,
+				Outputs:    nil,
+				StartTime:  0,
+				EndTime:    0,
+				DurationMs: 0,
+			}
+		} else {
+			resultCh <- result
+		}
+		close(resultCh)
+	}()
+
+	return resultCh, nil
 }
 
 // GetSteps 获取所有技能执行步骤
