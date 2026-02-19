@@ -19,14 +19,14 @@
 package memory
 
 import (
-	"context"
+	stdctx "context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 
 	"AgentFramework/agent"
-	"AgentFramework/pkg/beads/context"
+	beadscontext "AgentFramework/pkg/beads/context"
 
 	"github.com/cloudwego/eino/schema"
 )
@@ -35,14 +35,14 @@ import (
 // 使用大语言模型进行智能记忆压缩、精华提取和重要性评分
 type LLMCompressor struct {
 	model  agent.ChatModel
-	config *context.MemoryCompressionConfig
+	config *beadscontext.MemoryCompressionConfig
 	mu     sync.RWMutex
 }
 
 // NewLLMCompressor 创建新的 LLM 压缩器
-func NewLLMCompressor(model agent.ChatModel, config *context.MemoryCompressionConfig) *LLMCompressor {
+func NewLLMCompressor(model agent.ChatModel, config *beadscontext.MemoryCompressionConfig) *LLMCompressor {
 	if config == nil {
-		config = context.DefaultMemoryCompressionConfig()
+		config = beadscontext.DefaultMemoryCompressionConfig()
 	}
 	return &LLMCompressor{
 		model:  model,
@@ -52,9 +52,9 @@ func NewLLMCompressor(model agent.ChatModel, config *context.MemoryCompressionCo
 
 // CompressMemories 压缩记忆集合到指定层级
 // 将大量记忆压缩为少量精华记忆
-func (c *LLMCompressor) CompressMemories(ctx context.Context, memories *context.MemoryCollection, tier context.MemoryTier) (*context.MemoryCollection, error) {
+func (c *LLMCompressor) CompressMemories(ctx stdctx.Context, memories *beadscontext.MemoryCollection, tier beadscontext.MemoryTier) (*beadscontext.MemoryCollection, error) {
 	if memories == nil || memories.GetMemoryCount() == 0 {
-		return context.NewMemoryCollection(), nil
+		return NewMemoryCollection(), nil
 	}
 
 	c.mu.RLock()
@@ -63,11 +63,11 @@ func (c *LLMCompressor) CompressMemories(ctx context.Context, memories *context.
 	// 根据目标层级确定压缩策略
 	var targetCount int
 	switch tier {
-	case context.MemoryTierSession:
+	case beadscontext.MemoryTierSession:
 		targetCount = c.config.MaxSessionMemories
-	case context.MemoryTierDaily:
+	case beadscontext.MemoryTierDaily:
 		targetCount = c.config.MaxDailyMemories
-	case context.MemoryTierLongTerm:
+	case beadscontext.MemoryTierLongTerm:
 		targetCount = c.config.MaxLongTermMemories
 	default:
 		targetCount = c.config.MaxDailyMemories
@@ -82,7 +82,7 @@ func (c *LLMCompressor) CompressMemories(ctx context.Context, memories *context.
 	if c.config.EnableAsyncCompression {
 		go func() {
 			// 使用新的 context 以避免原 context 被取消
-			asyncCtx := context.Background()
+			asyncCtx := stdctx.Background()
 			c.compressAsync(asyncCtx, memories, tier, targetCount)
 		}()
 		return memories, nil
@@ -93,7 +93,7 @@ func (c *LLMCompressor) CompressMemories(ctx context.Context, memories *context.
 }
 
 // compressSync 同步压缩记忆
-func (c *LLMCompressor) compressSync(ctx context.Context, memories *context.MemoryCollection, tier context.MemoryTier, targetCount int) (*context.MemoryCollection, error) {
+func (c *LLMCompressor) compressSync(ctx stdctx.Context, memories *beadscontext.MemoryCollection, tier beadscontext.MemoryTier, targetCount int) (*beadscontext.MemoryCollection, error) {
 	// 提取精华记忆
 	essentials, err := c.ExtractEssentials(ctx, memories, targetCount)
 	if err != nil {
@@ -104,7 +104,7 @@ func (c *LLMCompressor) compressSync(ctx context.Context, memories *context.Memo
 }
 
 // compressAsync 异步压缩记忆
-func (c *LLMCompressor) compressAsync(ctx context.Context, memories *context.MemoryCollection, tier context.MemoryTier, targetCount int) {
+func (c *LLMCompressor) compressAsync(ctx stdctx.Context, memories *beadscontext.MemoryCollection, tier beadscontext.MemoryTier, targetCount int) {
 	essentials, err := c.ExtractEssentials(ctx, memories, targetCount)
 	if err != nil {
 		// 记录错误但不阻塞
@@ -117,22 +117,22 @@ func (c *LLMCompressor) compressAsync(ctx context.Context, memories *context.Mem
 }
 
 // SummarizeByType 按类型压缩记忆
-func (c *LLMCompressor) SummarizeByType(ctx context.Context, memories *context.MemoryCollection, memoryType context.MemoryType) (interface{}, error) {
+func (c *LLMCompressor) SummarizeByType(ctx stdctx.Context, memories *beadscontext.MemoryCollection, memoryType beadscontext.MemoryType) (interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	switch memoryType {
-	case context.MemoryTypeProfile:
+	case beadscontext.MemoryTypeProfile:
 		return c.summarizeProfiles(ctx, memories.Profiles)
-	case context.MemoryTypePreference:
+	case beadscontext.MemoryTypePreference:
 		return c.summarizePreferences(ctx, memories.Preferences)
-	case context.MemoryTypeEntity:
+	case beadscontext.MemoryTypeEntity:
 		return c.summarizeEntities(ctx, memories.Entities)
-	case context.MemoryTypeEvent:
+	case beadscontext.MemoryTypeEvent:
 		return c.summarizeEvents(ctx, memories.Events)
-	case context.MemoryTypeCase:
+	case beadscontext.MemoryTypeCase:
 		return c.summarizeCases(ctx, memories.Cases)
-	case context.MemoryTypePattern:
+	case beadscontext.MemoryTypePattern:
 		return c.summarizePatterns(ctx, memories.Patterns)
 	default:
 		return nil, fmt.Errorf("unknown memory type: %s", memoryType)
@@ -140,12 +140,12 @@ func (c *LLMCompressor) SummarizeByType(ctx context.Context, memories *context.M
 }
 
 // ExtractEssentials 提取最重要的记忆
-func (c *LLMCompressor) ExtractEssentials(ctx context.Context, memories *context.MemoryCollection, maxCount int) (*context.MemoryCollection, error) {
+func (c *LLMCompressor) ExtractEssentials(ctx stdctx.Context, memories *beadscontext.MemoryCollection, maxCount int) (*beadscontext.MemoryCollection, error) {
 	if memories == nil || memories.GetMemoryCount() == 0 {
-		return context.NewMemoryCollection(), nil
+		return NewMemoryCollection(), nil
 	}
 
-	result := context.NewMemoryCollection()
+	result := NewMemoryCollection()
 
 	// 为每类记忆评分并提取最重要的
 	if len(memories.Profiles) > 0 {
@@ -194,7 +194,7 @@ func (c *LLMCompressor) ExtractEssentials(ctx context.Context, memories *context
 }
 
 // CalculateImportance 计算记忆重要性
-func (c *LLMCompressor) CalculateImportance(ctx context.Context, memory interface{}) (float64, error) {
+func (c *LLMCompressor) CalculateImportance(ctx stdctx.Context, memory interface{}) (float64, error) {
 	// 构建评分 prompt
 	prompt := c.buildImportancePrompt(memory)
 
@@ -231,7 +231,7 @@ func (c *LLMCompressor) CalculateImportance(ctx context.Context, memory interfac
 }
 
 // MergeMemories 合并记忆
-func (c *LLMCompressor) MergeMemories(ctx context.Context, base, delta *context.MemoryCollection) (*context.MemoryCollection, error) {
+func (c *LLMCompressor) MergeMemories(ctx stdctx.Context, base, delta *beadscontext.MemoryCollection) (*beadscontext.MemoryCollection, error) {
 	if base == nil {
 		return delta, nil
 	}
@@ -239,7 +239,7 @@ func (c *LLMCompressor) MergeMemories(ctx context.Context, base, delta *context.
 		return base, nil
 	}
 
-	result := context.NewMemoryCollection()
+	result := NewMemoryCollection()
 
 	// 合并各类记忆
 	result.Profiles = c.mergeProfiles(base.Profiles, delta.Profiles)
@@ -254,7 +254,7 @@ func (c *LLMCompressor) MergeMemories(ctx context.Context, base, delta *context.
 
 // ===== 评分辅助方法 =====
 
-func (c *LLMCompressor) calculateImportanceBatch(ctx context.Context, memories []interface{}) ([]float64, error) {
+func (c *LLMCompressor) calculateImportanceBatch(ctx stdctx.Context, memories []interface{}) ([]float64, error) {
 	scores := make([]float64, len(memories))
 
 	// 使用简单的启发式评分，避免过多的 LLM 调用
@@ -272,7 +272,7 @@ func (c *LLMCompressor) calculateImportanceBatch(ctx context.Context, memories [
 
 // ===== 按类型提取精华记忆 =====
 
-func (c *LLMCompressor) extractTopProfiles(ctx context.Context, profiles []*context.ProfileMemory, count int) ([]*context.ProfileMemory, error) {
+func (c *LLMCompressor) extractTopProfiles(ctx stdctx.Context, profiles []*beadscontext.ProfileMemory, count int) ([]*beadscontext.ProfileMemory, error) {
 	if len(profiles) <= count {
 		return profiles, nil
 	}
@@ -281,7 +281,7 @@ func (c *LLMCompressor) extractTopProfiles(ctx context.Context, profiles []*cont
 	return c.topProfilesByRecency(profiles, count), nil
 }
 
-func (c *LLMCompressor) extractTopPreferences(ctx context.Context, prefs []*context.PreferenceMemory, count int) ([]*context.PreferenceMemory, error) {
+func (c *LLMCompressor) extractTopPreferences(ctx stdctx.Context, prefs []*beadscontext.PreferenceMemory, count int) ([]*beadscontext.PreferenceMemory, error) {
 	if len(prefs) <= count {
 		return prefs, nil
 	}
@@ -290,7 +290,7 @@ func (c *LLMCompressor) extractTopPreferences(ctx context.Context, prefs []*cont
 	return c.topPreferencesByConfidence(prefs, count), nil
 }
 
-func (c *LLMCompressor) extractTopEntities(ctx context.Context, entities []*context.EntityMemory, count int) ([]*context.EntityMemory, error) {
+func (c *LLMCompressor) extractTopEntities(ctx stdctx.Context, entities []*beadscontext.EntityMemory, count int) ([]*beadscontext.EntityMemory, error) {
 	if len(entities) <= count {
 		return entities, nil
 	}
@@ -299,7 +299,7 @@ func (c *LLMCompressor) extractTopEntities(ctx context.Context, entities []*cont
 	return c.topEntitiesByRecency(entities, count), nil
 }
 
-func (c *LLMCompressor) extractTopEvents(ctx context.Context, events []*context.EventMemory, count int) ([]*context.EventMemory, error) {
+func (c *LLMCompressor) extractTopEvents(ctx stdctx.Context, events []*beadscontext.EventMemory, count int) ([]*beadscontext.EventMemory, error) {
 	if len(events) <= count {
 		return events, nil
 	}
@@ -308,7 +308,7 @@ func (c *LLMCompressor) extractTopEvents(ctx context.Context, events []*context.
 	return c.topEventsByRecency(events, count), nil
 }
 
-func (c *LLMCompressor) extractTopCases(ctx context.Context, cases []*context.CaseMemory, count int) ([]*context.CaseMemory, error) {
+func (c *LLMCompressor) extractTopCases(ctx stdctx.Context, cases []*beadscontext.CaseMemory, count int) ([]*beadscontext.CaseMemory, error) {
 	if len(cases) <= count {
 		return cases, nil
 	}
@@ -317,7 +317,7 @@ func (c *LLMCompressor) extractTopCases(ctx context.Context, cases []*context.Ca
 	return c.topCasesByUsage(cases, count), nil
 }
 
-func (c *LLMCompressor) extractTopPatterns(ctx context.Context, patterns []*context.PatternMemory, count int) ([]*context.PatternMemory, error) {
+func (c *LLMCompressor) extractTopPatterns(ctx stdctx.Context, patterns []*beadscontext.PatternMemory, count int) ([]*beadscontext.PatternMemory, error) {
 	if len(patterns) <= count {
 		return patterns, nil
 	}
@@ -328,13 +328,13 @@ func (c *LLMCompressor) extractTopPatterns(ctx context.Context, patterns []*cont
 
 // ===== 按类型摘要 =====
 
-func (c *LLMCompressor) summarizeProfiles(ctx context.Context, profiles []*context.ProfileMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizeProfiles(ctx stdctx.Context, profiles []*beadscontext.ProfileMemory) (interface{}, error) {
 	if len(profiles) == 0 {
 		return nil, nil
 	}
 
 	// 合并多个 profile 为一个
-	merged := &context.ProfileMemory{
+	merged := &beadscontext.ProfileMemory{
 		Name:   profiles[0].Name,
 		Role:   profiles[0].Role,
 		Traits: make(map[string]string),
@@ -351,19 +351,19 @@ func (c *LLMCompressor) summarizeProfiles(ctx context.Context, profiles []*conte
 	return merged, nil
 }
 
-func (c *LLMCompressor) summarizePreferences(ctx context.Context, prefs []*context.PreferenceMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizePreferences(ctx stdctx.Context, prefs []*beadscontext.PreferenceMemory) (interface{}, error) {
 	if len(prefs) == 0 {
 		return nil, nil
 	}
 
 	// 按类别分组
-	byCategory := make(map[string][]*context.PreferenceMemory)
+	byCategory := make(map[string][]*beadscontext.PreferenceMemory)
 	for _, p := range prefs {
 		byCategory[p.Category] = append(byCategory[p.Category], p)
 	}
 
 	// 每个类别保留置信度最高的
-	result := make([]*context.PreferenceMemory, 0)
+	result := make([]*beadscontext.PreferenceMemory, 0)
 	for _, categoryPrefs := range byCategory {
 		top := categoryPrefs[0]
 		for _, p := range categoryPrefs {
@@ -377,13 +377,13 @@ func (c *LLMCompressor) summarizePreferences(ctx context.Context, prefs []*conte
 	return result, nil
 }
 
-func (c *LLMCompressor) summarizeEntities(ctx context.Context, entities []*context.EntityMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizeEntities(ctx stdctx.Context, entities []*beadscontext.EntityMemory) (interface{}, error) {
 	if len(entities) == 0 {
 		return nil, nil
 	}
 
 	// 去重：相同名称和类型的实体只保留一个
-	unique := make(map[string]*context.EntityMemory)
+	unique := make(map[string]*beadscontext.EntityMemory)
 	for _, e := range entities {
 		key := fmt.Sprintf("%s:%s", e.Type, e.Name)
 		if existing, ok := unique[key]; ok {
@@ -397,7 +397,7 @@ func (c *LLMCompressor) summarizeEntities(ctx context.Context, entities []*conte
 		}
 	}
 
-	result := make([]*context.EntityMemory, 0, len(unique))
+	result := make([]*beadscontext.EntityMemory, 0, len(unique))
 	for _, e := range unique {
 		result = append(result, e)
 	}
@@ -405,7 +405,7 @@ func (c *LLMCompressor) summarizeEntities(ctx context.Context, entities []*conte
 	return result, nil
 }
 
-func (c *LLMCompressor) summarizeEvents(ctx context.Context, events []*context.EventMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizeEvents(ctx stdctx.Context, events []*beadscontext.EventMemory) (interface{}, error) {
 	if len(events) == 0 {
 		return nil, nil
 	}
@@ -443,8 +443,8 @@ func (c *LLMCompressor) summarizeEvents(ctx context.Context, events []*context.E
 	}
 
 	// 创建摘要事件
-	return &context.EventMemory{
-		Type:        context.MemoryTypeEvent,
+	return &beadscontext.EventMemory{
+		Type:        string(beadscontext.MemoryTypeEvent),
 		Title:       summary.Title,
 		Description: summary.Description,
 		Outcomes:    summary.KeyOutcomes,
@@ -452,7 +452,7 @@ func (c *LLMCompressor) summarizeEvents(ctx context.Context, events []*context.E
 	}, nil
 }
 
-func (c *LLMCompressor) summarizeCases(ctx context.Context, cases []*context.CaseMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizeCases(ctx stdctx.Context, cases []*beadscontext.CaseMemory) (interface{}, error) {
 	if len(cases) == 0 {
 		return nil, nil
 	}
@@ -461,7 +461,7 @@ func (c *LLMCompressor) summarizeCases(ctx context.Context, cases []*context.Cas
 	return c.topCasesByUsage(cases, min(len(cases), 10)), nil
 }
 
-func (c *LLMCompressor) summarizePatterns(ctx context.Context, patterns []*context.PatternMemory) (interface{}, error) {
+func (c *LLMCompressor) summarizePatterns(ctx stdctx.Context, patterns []*beadscontext.PatternMemory) (interface{}, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
@@ -472,8 +472,8 @@ func (c *LLMCompressor) summarizePatterns(ctx context.Context, patterns []*conte
 
 // ===== 合并方法 =====
 
-func (c *LLMCompressor) mergeProfiles(base, delta []*context.ProfileMemory) []*context.ProfileMemory {
-	result := make([]*context.ProfileMemory, 0)
+func (c *LLMCompressor) mergeProfiles(base, delta []*beadscontext.ProfileMemory) []*beadscontext.ProfileMemory {
+	result := make([]*beadscontext.ProfileMemory, 0)
 	seen := make(map[string]bool)
 
 	// 添加 base
@@ -492,9 +492,9 @@ func (c *LLMCompressor) mergeProfiles(base, delta []*context.ProfileMemory) []*c
 	return result
 }
 
-func (c *LLMCompressor) mergePreferences(base, delta []*context.PreferenceMemory) []*context.PreferenceMemory {
-	result := make([]*context.PreferenceMemory, 0)
-	byKey := make(map[string]*context.PreferenceMemory)
+func (c *LLMCompressor) mergePreferences(base, delta []*beadscontext.PreferenceMemory) []*beadscontext.PreferenceMemory {
+	result := make([]*beadscontext.PreferenceMemory, 0)
+	byKey := make(map[string]*beadscontext.PreferenceMemory)
 
 	// 合并 base
 	for _, p := range base {
@@ -522,9 +522,9 @@ func (c *LLMCompressor) mergePreferences(base, delta []*context.PreferenceMemory
 	return result
 }
 
-func (c *LLMCompressor) mergeEntities(base, delta []*context.EntityMemory) []*context.EntityMemory {
-	result := make([]*context.EntityMemory, 0)
-	byKey := make(map[string]*context.EntityMemory)
+func (c *LLMCompressor) mergeEntities(base, delta []*beadscontext.EntityMemory) []*beadscontext.EntityMemory {
+	result := make([]*beadscontext.EntityMemory, 0)
+	byKey := make(map[string]*beadscontext.EntityMemory)
 
 	for _, e := range base {
 		key := fmt.Sprintf("%s:%s", e.Type, e.Name)
@@ -551,14 +551,14 @@ func (c *LLMCompressor) mergeEntities(base, delta []*context.EntityMemory) []*co
 	return result
 }
 
-func (c *LLMCompressor) mergeEvents(base, delta []*context.EventMemory) []*context.EventMemory {
-	result := append(base, delta)
+func (c *LLMCompressor) mergeEvents(base, delta []*beadscontext.EventMemory) []*beadscontext.EventMemory {
+	result := append(base, delta...)
 	return result
 }
 
-func (c *LLMCompressor) mergeCases(base, delta []*context.CaseMemory) []*context.CaseMemory {
-	result := make([]*context.CaseMemory, 0)
-	byDomain := make(map[string]*context.CaseMemory)
+func (c *LLMCompressor) mergeCases(base, delta []*beadscontext.CaseMemory) []*beadscontext.CaseMemory {
+	result := make([]*beadscontext.CaseMemory, 0)
+	byDomain := make(map[string]*beadscontext.CaseMemory)
 
 	for _, c := range base {
 		byDomain[c.Domain] = c
@@ -580,7 +580,7 @@ func (c *LLMCompressor) mergeCases(base, delta []*context.CaseMemory) []*context
 	return result
 }
 
-func (c *LLMCompressor) mergePatterns(base, delta []*context.PatternMemory) []*context.PatternMemory {
+func (c *LLMCompressor) mergePatterns(base, delta []*beadscontext.PatternMemory) []*beadscontext.PatternMemory {
 	result := append(base, delta...)
 	return result
 }
@@ -592,7 +592,7 @@ func (c *LLMCompressor) buildImportancePrompt(memory interface{}) string {
 	return fmt.Sprintf("Please score the importance of this memory on a scale of 0 to 1:\n\n%s", string(data))
 }
 
-func (c *LLMCompressor) buildEventSummaryPrompt(events []*context.EventMemory) string {
+func (c *LLMCompressor) buildEventSummaryPrompt(events []*beadscontext.EventMemory) string {
 	var sb strings.Builder
 	sb.WriteString("Please summarize these events:\n\n")
 	for i, e := range events {
@@ -603,8 +603,8 @@ func (c *LLMCompressor) buildEventSummaryPrompt(events []*context.EventMemory) s
 
 // ===== 排序辅助方法 =====
 
-func (c *LLMCompressor) topProfilesByRecency(profiles []*context.ProfileMemory, count int) []*context.ProfileMemory {
-	sorted := make([]*context.ProfileMemory, len(profiles))
+func (c *LLMCompressor) topProfilesByRecency(profiles []*beadscontext.ProfileMemory, count int) []*beadscontext.ProfileMemory {
+	sorted := make([]*beadscontext.ProfileMemory, len(profiles))
 	copy(sorted, profiles)
 
 	// 简单冒泡排序，按更新时间降序
@@ -623,8 +623,8 @@ func (c *LLMCompressor) topProfilesByRecency(profiles []*context.ProfileMemory, 
 	return sorted
 }
 
-func (c *LLMCompressor) topPreferencesByConfidence(prefs []*context.PreferenceMemory, count int) []*context.PreferenceMemory {
-	sorted := make([]*context.PreferenceMemory, len(prefs))
+func (c *LLMCompressor) topPreferencesByConfidence(prefs []*beadscontext.PreferenceMemory, count int) []*beadscontext.PreferenceMemory {
+	sorted := make([]*beadscontext.PreferenceMemory, len(prefs))
 	copy(sorted, prefs)
 
 	// 按置信度降序排序
@@ -643,8 +643,8 @@ func (c *LLMCompressor) topPreferencesByConfidence(prefs []*context.PreferenceMe
 	return sorted
 }
 
-func (c *LLMCompressor) topEntitiesByRecency(entities []*context.EntityMemory, count int) []*context.EntityMemory {
-	sorted := make([]*context.EntityMemory, len(entities))
+func (c *LLMCompressor) topEntitiesByRecency(entities []*beadscontext.EntityMemory, count int) []*beadscontext.EntityMemory {
+	sorted := make([]*beadscontext.EntityMemory, len(entities))
 	copy(sorted, entities)
 
 	// 按最近发现时间降序排序
@@ -663,8 +663,8 @@ func (c *LLMCompressor) topEntitiesByRecency(entities []*context.EntityMemory, c
 	return sorted
 }
 
-func (c *LLMCompressor) topEventsByRecency(events []*context.EventMemory, count int) []*context.EventMemory {
-	sorted := make([]*context.EventMemory, len(events))
+func (c *LLMCompressor) topEventsByRecency(events []*beadscontext.EventMemory, count int) []*beadscontext.EventMemory {
+	sorted := make([]*beadscontext.EventMemory, len(events))
 	copy(sorted, events)
 
 	// 按发生时间降序排序
@@ -683,8 +683,8 @@ func (c *LLMCompressor) topEventsByRecency(events []*context.EventMemory, count 
 	return sorted
 }
 
-func (c *LLMCompressor) topCasesByUsage(cases []*context.CaseMemory, count int) []*context.CaseMemory {
-	sorted := make([]*context.CaseMemory, len(cases))
+func (c *LLMCompressor) topCasesByUsage(cases []*beadscontext.CaseMemory, count int) []*beadscontext.CaseMemory {
+	sorted := make([]*beadscontext.CaseMemory, len(cases))
 	copy(sorted, cases)
 
 	// 按应用次数降序排序
@@ -703,8 +703,8 @@ func (c *LLMCompressor) topCasesByUsage(cases []*context.CaseMemory, count int) 
 	return sorted
 }
 
-func (c *LLMCompressor) topPatternsByFrequency(patterns []*context.PatternMemory, count int) []*context.PatternMemory {
-	sorted := make([]*context.PatternMemory, len(patterns))
+func (c *LLMCompressor) topPatternsByFrequency(patterns []*beadscontext.PatternMemory, count int) []*beadscontext.PatternMemory {
+	sorted := make([]*beadscontext.PatternMemory, len(patterns))
 	copy(sorted, patterns)
 
 	// 按频率和置信度排序
@@ -735,13 +735,13 @@ func min(a, b int) int {
 }
 
 // NewMemoryCollection 创建新的记忆集合
-func NewMemoryCollection() *context.MemoryCollection {
-	return &context.MemoryCollection{
-		Profiles:    make([]*context.ProfileMemory, 0),
-		Preferences: make([]*context.PreferenceMemory, 0),
-		Entities:    make([]*context.EntityMemory, 0),
-		Events:      make([]*context.EventMemory, 0),
-		Cases:       make([]*context.CaseMemory, 0),
-		Patterns:    make([]*context.PatternMemory, 0),
+func NewMemoryCollection() *beadscontext.MemoryCollection {
+	return &beadscontext.MemoryCollection{
+		Profiles:    make([]*beadscontext.ProfileMemory, 0),
+		Preferences: make([]*beadscontext.PreferenceMemory, 0),
+		Entities:    make([]*beadscontext.EntityMemory, 0),
+		Events:      make([]*beadscontext.EventMemory, 0),
+		Cases:       make([]*beadscontext.CaseMemory, 0),
+		Patterns:    make([]*beadscontext.PatternMemory, 0),
 	}
 }

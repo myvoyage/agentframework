@@ -191,13 +191,13 @@ func (w *DAGWorkflow) Run(ctx context.Context, input string, opts ...model.Optio
 		Status:       StatusRunning,
 		Input:        input,
 		Progress:     0.0,
-		State:        &WorkflowState{NodeStates: make(map[string]string)},
+		State:        map[string]interface{}{"node_states": make(map[string]string)},
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
 
 	// Save initial checkpoint
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
@@ -692,4 +692,19 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 		Role:    schema.Assistant,
 		Content: strings.Join(finalOutputs, "\n\n---\n\n"),
 	}, finalState, nil
+}
+
+// GetID returns the workflow ID
+func (w *DAGWorkflow) GetID() string {
+	return w.name
+}
+
+// GetName returns the workflow name
+func (w *DAGWorkflow) GetName() string {
+	return w.name
+}
+
+// GetType returns the workflow type
+func (w *DAGWorkflow) GetType() string {
+	return "dag"
 }

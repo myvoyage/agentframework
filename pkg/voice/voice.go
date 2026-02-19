@@ -123,8 +123,19 @@ func (m *VoiceModule) Close() error {
 func (m *VoiceModule) GetAllStats() map[string]map[string]interface{} {
 	stats := make(map[string]map[string]interface{})
 
-	stats["stt"] = m.stt.GetStats()
-	stats["tts"] = m.tts.GetStats()
+	// Convert STT stats
+	sttStats := m.stt.GetStats()
+	stats["stt"] = make(map[string]interface{})
+	for k, v := range sttStats {
+		stats["stt"][k] = v
+	}
+
+	// Convert TTS stats
+	ttsStats := m.tts.GetStats()
+	stats["tts"] = make(map[string]interface{})
+	for k, v := range ttsStats {
+		stats["tts"][k] = v
+	}
 
 	return stats
 }

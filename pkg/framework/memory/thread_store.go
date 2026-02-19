@@ -40,7 +40,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
@@ -149,7 +148,7 @@ func (s *MemoryThreadStore) Create(ctx context.Context) (*Thread, error) {
 
 	t := &Thread{
 		ID:       id,
-		Messages: []*schema.Message{},
+		Messages: []Message{},
 	}
 
 	meta := &ThreadMetadata{
@@ -271,7 +270,7 @@ func (s *FileThreadStore) Create(ctx context.Context) (*Thread, error) {
 	id := uuid.NewString()
 	t := &Thread{
 		ID:       id,
-		Messages: []*schema.Message{},
+		Messages: []Message{},
 	}
 
 	if err := s.Save(context.Background(), t); err != nil {
@@ -370,7 +369,7 @@ func (s *RedisThreadStore) Create(ctx context.Context) (*Thread, error) {
 	id := uuid.NewString()
 	t := &Thread{
 		ID:       id,
-		Messages: []*schema.Message{},
+		Messages: []Message{},
 	}
 	if err := s.Save(ctx, t); err != nil {
 		return nil, err
@@ -464,7 +463,7 @@ func (s *SQLThreadStore) Create(ctx context.Context) (*Thread, error) {
 	id := uuid.NewString()
 	t := &Thread{
 		ID:       id,
-		Messages: []*schema.Message{},
+		Messages: []Message{},
 	}
 	if err := s.Save(ctx, t); err != nil {
 		return nil, err

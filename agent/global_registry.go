@@ -31,7 +31,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
 )
 
 // Global tool registry instance
@@ -51,9 +53,8 @@ func GetGlobalToolRegistry() *DynamicToolRegistry {
 			HotReloadInterval: 30 * time.Second,
 			InitialLoaders: []ToolLoader{
 				NewHTTPToolLoader(),
-				NewFileToolLoader(),
-				NewPluginToolLoader(),
-				NewBuiltinToolLoader(),
+				NewFileToolLoader("./tools"),
+				NewPluginToolLoader("./plugins"),
 			},
 		}
 		

@@ -8,19 +8,21 @@ package monitoring
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
-	"e:/myVibeCoding/AgentFramework/pkg/metrics"
+	"AgentFramework/pkg/metrics"
 )
 
 // MonitoringManager 监控管理器
 type MonitoringManager struct {
 	registry   *prometheus.Registry
 	metrics     *metrics.Metrics
+	mu          sync.RWMutex
 	agentID     string
 	version     string
 	environment string
@@ -57,31 +59,31 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.AgentTotalAgents = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "agent_total_agents",
-			elp: "Total number of agents",
+			Help: "Total number of agents",
 		},
 	)
 	metrics.AgentActiveAgents = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "agent_active_agents",
-			elp: "Number of active agents",
+			Help: "Number of active agents",
 		},
 	)
 	metrics.AgentCreationTime = promauto.With(registry).NewSummary(
 		prometheus.SummaryOpts{
 			Name: "agent_creation_time_seconds",
-			elp: "Time taken to create agents",
+			Help: "Time taken to create agents",
 		},
 	)
 	metrics.AgentRunTime = promauto.With(registry).NewSummary(
 		prometheus.SummaryOpts{
 			Name: "agent_run_time_seconds",
-			elp: "Time taken by agents to run",
+			Help: "Time taken by agents to run",
 		},
 	)
 	metrics.AgentErrors = promauto.With(registry).NewCounter(
 		prometheus.CounterOpts{
 			Name: "agent_errors_total",
-			elp: "Total number of agent errors",
+			Help: "Total number of agent errors",
 		},
 	)
 
@@ -89,44 +91,44 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.ModelTotalModels = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "model_total_models",
-			elp: "Total number of models",
+			Help: "Total number of models",
 		},
 	)
 	metrics.ModelActiveModels = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "model_active_models",
-			elp: "Number of active models",
+			Help: "Number of active models",
 		},
 	)
 	metrics.ModelSwitchTime = promauto.With(registry).NewSummary(
 		prometheus.SummaryOpts{
 			Name: "model_switch_time_seconds",
-			elp: "Time taken to switch models",
+			Help: "Time taken to switch models",
 		},
 	)
 	metrics.ModelLatency = promauto.With(registry).NewSummary(
 		prometheus.SummaryOpts{
 			Name: "model_latency_seconds",
-			elp: "Model request latency",
+			Help: "Model request latency",
 		},
 	)
 	metrics.ModelErrors = promauto.With(registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "model_errors_total",
-			elp: "Total number of model errors",
+			Help: "Total number of model errors",
 		},
 		[]string{"model_type", "error_type"},
 	)
 	metrics.ModelCacheHits = promauto.With(registry).NewCounter(
 		prometheus.CounterOpts{
 			Name: "model_cache_hits_total",
-			elp: "Total number of model cache hits",
+			Help: "Total number of model cache hits",
 		},
 	)
 	metrics.ModelCacheMisses = promauto.With(registry).NewCounter(
 		prometheus.CounterOpts{
 			Name: "model_cache_misses_total",
-			elp: "Total number of model cache misses",
+			Help: "Total number of model cache misses",
 		},
 	)
 
@@ -134,14 +136,14 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.SkillCalls = promauto.With(registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "skill_calls_total",
-			elp: "Total number of skill calls",
+			Help: "Total number of skill calls",
 		},
 		[]string{"skill_id", "category"},
 	)
 	metrics.SkillLatency = promauto.With(registry).NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name: "skill_latency_seconds",
-			elp: "Skill execution latency",
+			Help: "Skill execution latency",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.5, 1, 2.5, 5, 10},
 		},
 		[]string{"skill_id", "category"},
@@ -149,20 +151,20 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.SkillErrors = promauto.With(registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "skill_errors_total",
-			elp: "Total number of skill errors",
+			Help: "Total number of skill errors",
 		},
 		[]string{"skill_id", "category", "error_type"},
 	)
 	metrics.SkillCacheHits = promauto.With(registry).NewCounter(
 		prometheus.CounterOpts{
 			Name: "skill_cache_hits_total",
-			elp: "Total number of skill cache hits",
+			Help: "Total number of skill cache hits",
 		},
 	)
 	metrics.SkillCacheMisses = promauto.With(registry).NewCounter(
 		prometheus.CounterOpts{
 			Name: "skill_cache_misses_total",
-			elp: "Total number of skill cache misses",
+			Help: "Total number of skill cache misses",
 		},
 	)
 
@@ -170,14 +172,14 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.WorkflowRuns = promauto.With(registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "workflow_runs_total",
-			elp: "Total number of workflow runs",
+			Help: "Total number of workflow runs",
 		},
 		[]string{"workflow_id", "status"},
 	)
-	metrics.WorkflowLatency = promauto.With(registry).NewHistogramVec(
+	metrics.WorkflowLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name: "workflow_latency_seconds",
-			elp: "Workflow execution latency",
+			Name:    "workflow_latency_seconds",
+			Help:    "Workflow execution latency",
 			Buckets: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 600, 1800, 3600},
 		},
 		[]string{"workflow_id", "step_id"},
@@ -185,20 +187,20 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.WorkflowErrors = promauto.With(registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "workflow_errors_total",
-			elp: "Total number of workflow errors",
+			Help: "Total number of workflow errors",
 		},
 		[]string{"workflow_id", "step_id", "error_type"},
 	)
 	metrics.WorkflowActiveTasks = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "workflow_active_tasks",
-			elp: "Number of active workflow tasks",
+			Help: "Number of active workflow tasks",
 		},
 	)
 	metrics.TaskExecutionTime = promauto.With(registry).NewSummary(
 		prometheus.SummaryOpts{
 			Name: "task_execution_time_seconds",
-			elp: "Task execution time",
+			Help: "Task execution time",
 		},
 	)
 
@@ -206,31 +208,31 @@ func NewMonitoringManager(config *MonitoringConfig) (*MonitoringManager, error) 
 	metrics.SystemMemoryUsage = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "system_memory_usage_bytes",
-			elp: "System memory usage in bytes",
+			Help: "System memory usage in bytes",
 		},
 	)
 	metrics.SystemCPUUsage = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "system_cpu_usage_percent",
-			elp: "System CPU usage percentage",
+			Help: "System CPU usage percentage",
 		},
 	)
 	metrics.SystemGoroutines = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "system_gouroutines",
-			elp: "Number of running goroutines",
+			Help: "Number of running goroutines",
 		},
 	)
 	metrics.SystemGCCount = promauto.With(registry).NewGauge(
 		prometheus.GaugeOpts{
 			Name: "system_gc_count",
-			elp: "Number of garbage collections",
+			Help: "Number of garbage collections",
 		},
 	)
 	metrics.SystemGCPauseTime = promauto.With(registry).NewHistogram(
 		prometheus.HistogramOpts{
 			Name: "system_gc_pause_seconds",
-			elp: "Garbage collection pause time",
+			Help: "Garbage collection pause time",
 			Buckets: []float64{0.000001, 0.00001, 0.0001, 0.001, 0.01, 0.1, 1},
 		},
 	)
@@ -318,10 +320,7 @@ func (m *ModelMetrics) RecordModelSwitch(duration time.Duration) {
 func (m *ModelMetrics) RecordModelRequest(duration time.Duration, err error) {
 	m.manager.metrics.ModelLatency.Observe(duration.Seconds())
 	if err != nil {
-		m.manager.metrics.ModelErrors.WithLabelValues(
-			"model_type", m.modelID,
-			"error_type", err.Error(),
-		).Inc()
+		m.manager.metrics.ModelErrors.WithLabelValues(m.modelID, err.Error()).Inc()
 	}
 }
 
@@ -353,21 +352,14 @@ func (m *MonitoringManager) NewSkillMetrics(skillID, category string) *SkillMetr
 
 // RecordSkillCall 记录技能调用
 func (s *SkillMetrics) RecordSkillCall() {
-	s.manager.metrics.SkillCalls.WithLabelValues(
-		"skill_id", s.skillID,
-		"category", s.category,
-	).Inc()
+	s.manager.metrics.SkillCalls.WithLabelValues(s.skillID, s.category).Inc()
 }
 
 // RecordSkillExecution 记录技能执行
 func (s *SkillMetrics) RecordSkillExecution(duration time.Duration, err error) {
-	s.manager.metrics.SkillLatency.Observe(duration.Seconds())
+	s.manager.metrics.SkillLatency.WithLabelValues(s.skillID, s.category).Observe(duration.Seconds())
 	if err != nil {
-		s.manager.metrics.SkillErrors.WithLabelValues(
-			"skill_id", s.skillID,
-			"category", s.category,
-			"error_type", err.Error(),
-		).Inc()
+		s.manager.metrics.SkillErrors.WithLabelValues(s.skillID, s.category, err.Error()).Inc()
 	}
 }
 
@@ -397,10 +389,7 @@ func (m *MonitoringManager) NewWorkflowMetrics(workflowID string) *WorkflowMetri
 
 // RecordWorkflowStart 记录工作流启动
 func (w *WorkflowMetrics) RecordWorkflowStart() {
-	w.manager.metrics.WorkflowRuns.WithLabelValues(
-		"workflow_id", w.workflowID,
-		"status", "started",
-	).Inc()
+	w.manager.metrics.WorkflowRuns.WithLabelValues(w.workflowID, "started").Inc()
 }
 
 // RecordWorkflowComplete 记录工作流完成
@@ -408,17 +397,11 @@ func (w *WorkflowMetrics) RecordWorkflowComplete(duration time.Duration, err err
 	status := "completed"
 	if err != nil {
 		status = "failed"
-		w.manager.metrics.WorkflowErrors.WithLabelValues(
-			"workflow_id", w.workflowID,
-			"error_type", err.Error(),
-		).Inc()
+		w.manager.metrics.WorkflowErrors.WithLabelValues(w.workflowID, "complete", err.Error()).Inc()
 	} else {
-		w.manager.metrics.WorkflowRuns.WithLabelValues(
-			"workflow_id", w.workflowID,
-			"status", status,
-		).Inc()
+		w.manager.metrics.WorkflowRuns.WithLabelValues(w.workflowID, status).Inc()
 	}
-	w.manager.metrics.WorkflowLatency.Observe(duration.Seconds())
+	w.manager.metrics.WorkflowLatency.WithLabelValues(w.workflowID, "complete").Observe(duration.Seconds())
 }
 
 // RecordTaskStart 记录任务启动
@@ -500,8 +483,12 @@ func (s *SystemMetrics) updateMetrics() {
 	// GC stats
 	s.manager.metrics.SystemGCCount.Set(float64(m.NumGC))
 
-	// GC pause time (in nanoseconds, convert to seconds)
-	pauseTime := time.Duration(m.PauseTotal[(0)].(uint64(0)))
+	// GC pause time (sum of all GC pauses in nanoseconds, convert to seconds)
+	var totalPause uint64
+	for _, pause := range m.PauseNs {
+		totalPause += pause
+	}
+	pauseTime := time.Duration(totalPause)
 	s.manager.metrics.SystemGCPauseTime.Observe(pauseTime.Seconds())
 }
 
@@ -548,8 +535,5 @@ func (m *MonitoringManager) GetSystemMetrics(updateInterval time.Duration) *Syst
 	return m.NewSystemMetrics(updateInterval)
 }
 
-// mu 读写锁
-func (m *MonitoringManager) mu {
-	// Note: This should be sync.RWMutex in real implementation
-	// For simplicity, we're using map without proper locking here
-}
+// mu 读写锁 - 注释：在实际实现中应该使用 sync.RWMutex
+// 为简单起见，这里使用不带锁的 map，生产环境应添加适当的锁机制

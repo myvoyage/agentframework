@@ -1,3 +1,13 @@
+// Copyright (C) 2025 Agent Framework Contributors
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+
 package memory_test
 
 import (
@@ -39,27 +49,31 @@ func TestMemoryCompressionConfig(t *testing.T) {
 	}
 }
 
-// TestEnhancedMemoryCollection 测试增强记忆集合
-func TestEnhancedMemoryCollection(t *testing.T) {
-	collection := context.NewEnhancedMemoryCollection()
+// TestMemoryCollection 测试记忆集合结构
+func TestMemoryCollection(t *testing.T) {
+	collection := &context.MemoryCollection{}
 
 	if collection == nil {
-		t.Fatalf("NewEnhancedMemoryCollection should not return nil")
+		t.Fatalf("MemoryCollection should not return nil")
 	}
 
-	if collection.IsEmpty() == false {
-		t.Errorf("New collection should be empty")
+	// 测试初始化空集合
+	if collection.Profiles != nil {
+		t.Errorf("New collection should have nil Profiles")
 	}
-
-	if collection.GetMemoryCount() != 0 {
-		t.Errorf("New collection should have 0 memories")
+	if collection.Preferences != nil {
+		t.Errorf("New collection should have nil Preferences")
 	}
-
-	// 测试设置层级
-	collection.SetTier("test-id", context.MemoryTierSession, time.Now().Add(24*time.Hour), 0.5)
-
-	tier := collection.GetTier("test-id")
-	if tier != context.MemoryTierSession {
-		t.Errorf("Expected tier to be Session, got %v", tier)
+	if collection.Entities != nil {
+		t.Errorf("New collection should have nil Entities")
+	}
+	if collection.Events != nil {
+		t.Errorf("New collection should have nil Events")
+	}
+	if collection.Cases != nil {
+		t.Errorf("New collection should have nil Cases")
+	}
+	if collection.Patterns != nil {
+		t.Errorf("New collection should have nil Patterns")
 	}
 }

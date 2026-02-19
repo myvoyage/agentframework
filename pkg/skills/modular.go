@@ -15,8 +15,6 @@ import (
 	"runtime"
 	"sync"
 	"time"
-
-	"github.com/cloudwego/eino/schema"
 )
 
 // ModularSkillRegistry 模块化技能注册表
@@ -261,13 +259,11 @@ func (r *ModularSkillRegistry) loadSkill(path string) error {
 
 		symbol, err := plug.Lookup("Skill")
 		if err != nil {
-			plug.Close()
 			return fmt.Errorf("plugin does not export Skill symbol: %w", err)
 		}
 
-		skill, ok := symbol.(Skill)
+		_, ok := symbol.(Skill)
 		if !ok {
-			plug.Close()
 			return fmt.Errorf("plugin Skill symbol is not a Skill implementation")
 		}
 
@@ -365,7 +361,8 @@ func (r *ModularSkillRegistry) checkDependencies(metadata *ModularSkillMetadata)
 
 		if exists {
 			// 检查版本兼容性
-			if err := r.checkDependencyVersion(depSkill.Version, dep); err != nil {
+			versionStr := metadataVersionToString(depSkill.Version)
+			if err := r.checkDependencyVersion(versionStr, dep); err != nil {
 				return fmt.Errorf("dependency %s version check failed: %w", dep.ID, err)
 			}
 		}
@@ -569,16 +566,15 @@ func (r *ModularSkillRegistry) UnloadSkill(skillID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	skill, exists := r.skills[skillID]
+	_, exists := r.skills[skillID]
 	if !exists {
 		return fmt.Errorf("skill not found: %s", skillID)
 	}
 
 	// 关闭插件
-	if plug, ok := r.plugins[skillID]; ok {
-		if err := plug.Close(); err != nil {
-			return fmt.Errorf("failed to close plugin: %w", err)
-		}
+	if _, ok := r.plugins[skillID]; ok {
+		// Note: Go's plugin package does not have a Close method.
+		// Plugin resources are automatically cleaned up when the program exits.
 		delete(r.plugins, skillID)
 	}
 
@@ -644,16 +640,10 @@ func (r *ModularSkillRegistry) Close() error {
 	defer r.mu.Unlock()
 
 	// 关闭所有插件
-	var errors []error
-	for id, plug := range r.plugins {
-		if err := plug.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close plugin %s: %w", id, err))
-		}
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("errors closing plugins: %v", errors)
-	}
+	// Note: Go's plugin package does not have a Close method.
+	// Plugin resources are automatically cleaned up when the program exits.
+	// Clear the plugins map.
+	r.plugins = make(map[string]*plugin.Plugin)
 
 	return nil
 }

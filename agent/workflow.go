@@ -504,7 +504,9 @@ func createReActAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, m
 			
 			for _, toolNameInterface := range toolNames {
 				if toolName, ok := toolNameInterface.(string); ok && toolName != "" {
-					t, err := registry.GetTool(toolName)
+					// GetTool requires name and version parameters
+					// Use empty string for version to get latest
+					t, err := registry.GetTool(toolName, "")
 					if err != nil {
 						// Log warning but continue with other tools
 						println(fmt.Sprintf("Warning: failed to load tool '%s': %v", toolName, err))

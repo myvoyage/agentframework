@@ -1,221 +1,137 @@
 # AgentFramework Makefile
-# Supports both desktop and CLI builds
+# 多渠道机器人框架 - 构建和开发工具
 
-.PHONY: all build clean test desktop cli run-desktop run-cli install help \
-          test-unit test-integration test-platform test-all ci \
-          lint security-check benchmark deps-install
+.PHONY: all build run test clean fmt lint deps help docker
 
 # Variables
 BINARY_NAME=agentframework
-CLI_BINARY_NAME=af
-DESKTOP_BINARY_NAME=AgentFramework
-BUILD_DIR=build
-CMD_DIR=cmd
+CMD_DIR=./cmd
+BUILD_DIR=./build
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS=-ldflags "-X main.Version=$(VERSION)"
 
-# Go variables
+# Go parameters
 GOCMD=go
-GOFLAGS=-v
-LDFLAGS=
+GOBUILD=$(GOCMD) build
+GOTEST=$(GOCMD) test
+GOGET=$(GOCMD) get
+GOMOD=$(GOCMD) mod
+GOFMT=gofmt
 
-# Detect OS
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-    TARGET_OS = linux
-else ifeq ($(UNAME_S),Darwin)
-    TARGET_OS = darwin
-else
-    TARGET_OS = windows
-endif
+# Default target
+all: deps build
 
-all: build
-
-## Build targets
-
-build: desktop cli
-	@echo "Built all targets"
-
-desktop:
-	@echo "Building desktop application..."
-	@echo "Run 'make run-desktop' to start the desktop application"
-
-cli:
-	@echo "Building CLI application..."
-	@mkdir -p $(BUILD_DIR)
-	$(GOCMD) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(CLI_BINARY_NAME)$(EXTENSION) ./cmd/cli
-	@echo "CLI binary built: $(BUILD_DIR)/$(CLI_BINARY_NAME)$(EXTENSION)"
-
-## Run targets
-
-run: run-desktop
-
-run-desktop:
-	@echo "Starting desktop application..."
-	@if [ "$(TARGET_OS)" = "windows" ]; then \
-		./$(BUILD_DIR)/bin/$(DESKTOP_BINARY_NAME)$(EXTENSION); \
-	else \
-		$(GOCMD) run github.com/wailsapp/wails/v2/cmd/wails; \
-	fi
-
-run-cli:
-	@echo "Running CLI application..."
-	@./$(BUILD_DIR)/$(CLI_BINARY_NAME)$(EXTENSION) $(ARGS)
-
-## Install targets
-
-install: install-cli install-desktop
-	@echo "Installed all targets"
-
-install-cli:
-	@echo "Installing CLI binary..."
-	@mkdir -p $(DESTDIR)usr/local/bin
-	@cp $(BUILD_DIR)/$(CLI_BINARY_NAME)$(EXTENSION) $(DESTDIR)usr/local/bin/$(BINARY_NAME)$(EXTENSION)
-	@echo "CLI binary installed to $(DESTDIR)usr/local/bin/$(BINARY_NAME)$(EXTENSION)"
-
-install-desktop:
-	@echo "Installing desktop application..."
-	@echo "Desktop installation requires platform-specific steps"
-
-## Test targets
-
-test:
-	@echo "Running tests..."
-	$(GOCMD) test -v ./...
-
-test-unit:
-	@echo "Running unit tests..."
-	$(GOCMD) test -v -race -coverprofile=coverage.out ./tests/unit/...
-	$(GOCMD) tool cover -html=coverage.out -o coverage.html
-
-test-integration:
-	@echo "Running integration tests..."
-	$(GOCMD) test -v -tags=integration ./tests/integration/...
-
-test-platform:
-	@echo "Running platform-specific tests..."
-	$(GOCMD) test -v ./tests/unit/pkg/tools/sandbox/sys/... ./tests/unit/pkg/voice/... ./tests/unit/agent/...
-
-test-all: test-unit test-integration test-platform
-	@echo "All tests completed"
-
-test-coverage:
-	@echo "Running tests with coverage..."
-	$(GOCMD) test -v -coverprofile=coverage.out -covermode=atomic ./...
-	$(GOCMD) tool cover -html=coverage.out
-
-## CI targets
-
-ci:
-	@echo "Running CI pipeline..."
-	@bash ./ci/cross-platform-test.sh
-
-ci-short:
-	@echo "Running CI pipeline (quick)..."
-	@bash ./ci/cross-platform-test.sh --skip-integration --skip-benchmarks
-
-## Lint and security targets
-
-lint:
-	@echo "Running linters..."
-	@echo "Running go vet..."
-	$(GOCMD) vet ./...
-	@echo "Checking code formatting..."
-	@if [ -n "$$(gofmt -s -l .)" ]; then \
-		echo "Error: Found unformatted files:"; \
-		gofmt -s -l .; \
-		exit 1; \
-	fi
-	@echo "Linting passed"
-
-security-check:
-	@echo "Running security checks..."
-	@if command -v govulncheck >/dev/null 2>&1; then \
-		govulncheck ./...; \
-	else \
-		echo "govulncheck not found, skipping vulnerability check"; \
-	fi
-
-## Benchmark targets
-
-benchmark:
-	@echo "Running benchmarks..."
-	$(GOCMD) test -bench=. -benchmem -run=^$ ./tests/benchmarks/... | tee benchmark.txt
-
-## Dependency targets
-
-deps-install:
-	@echo "Installing platform dependencies..."
-	@bash ./ci/cross-platform-test.sh --skip-unit --skip-integration --skip-platform --skip-build --skip-security
-
-deps-check:
-	@echo "Checking dependencies..."
-	@bash ./ci/cross-platform-test.sh --skip-unit --skip-integration --skip-platform --skip-build --skip-security --skip-deps
-
-## Clean targets
-
-clean:
-	@echo "Cleaning build artifacts..."
-	@rm -rf $(BUILD_DIR)
-	@rm -f coverage.out
-
-clean-all: clean
-	@echo "Cleaning all artifacts..."
-	@rm -rf dist/
-
-## Help target
-
+## help: 显示帮助信息
 help:
-	@echo "AgentFramework Makefile"
+	@echo "AgentFramework 多渠道机器人框架"
 	@echo ""
-	@echo "Usage: make [target]"
+	@echo "使用方法: make [target]"
 	@echo ""
-	@echo "Build targets:"
-	@echo "  all              - Build all targets (default)"
-	@echo "  build           - Build all targets"
-	@echo "  desktop         - Build desktop application"
-	@echo "  cli             - Build CLI application"
+	@echo "常用命令:"
+	@echo "  make deps          - 下载依赖"
+	@echo "  make build         - 构建程序"
+	@echo "  make run           - 运行简单机器人"
+	@echo "  make test          - 运行测试"
+	@echo "  make clean         - 清理构建文件"
+	@echo "  make fmt           - 格式化代码"
+	@echo "  make dev-setup     - 开发环境设置"
+
+## deps: 下载依赖
+deps:
+	@echo "📦 下载依赖..."
+	$(GOMOD) tidy
+	$(GOMOD) download
+
+## build: 构建程序
+build:
+	@echo "🔨 构建程序..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)/*/
+
+## build-simplebot: 构建简单机器人
+build-simplebot:
+	@echo "🤖 构建简单机器人..."
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/simplebot $(CMD_DIR)/simplebot/main.go
+
+## run: 运行简单机器人
+run: build-simplebot
+	@echo "🚀 运行机器人..."
+	./$(BUILD_DIR)/simplebot
+
+## test: 运行所有测试
+test:
+	@echo "🧪 运行测试..."
+	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+
+## test-channels: 仅测试渠道模块
+test-channels:
+	@echo "🧪 测试多渠道模块..."
+	$(GOTEST) -v -race ./pkg/channels/...
+
+## fmt: 格式化代码
+fmt:
+	@echo "🎨 格式化代码..."
+	$(GOFMT) -s -w .
+
+## vet: 代码静态分析
+vet:
+	@echo "🔬 Go vet 静态分析..."
+	$(GOCMD) vet ./...
+
+## clean: 清理构建文件
+clean:
+	@echo "🧹 清理构建文件..."
+	@rm -rf $(BUILD_DIR)
+	@rm -f coverage.out coverage.html
+	@rm -f config/channels.generated.yaml
+
+## gen-keys: 生成示例环境变量文件
+gen-keys:
+	@echo "🔑 生成测试配置..."
+	@cat > .env.example << 'EOF'
+# Telegram
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+
+# Discord
+DISCORD_BOT_TOKEN=your_discord_bot_token
+
+# Slack
+SLACK_BOT_TOKEN=xoxb-your-slack-bot-token
+SLACK_APP_TOKEN=xapp-your-slack-app-token
+
+# Feishu
+FEISHU_APP_ID=cli_your_feishu_app_id
+FEISHU_APP_SECRET=your_feishu_app_secret
+
+# WeWork
+WEWORK_CORP_ID=your_wework_corp_id
+WEWORK_CORP_SECRET=your_wework_corp_secret
+WEWORK_AGENT_ID=your_wework_agent_id
+
+# DingTalk
+DINGTALK_APP_KEY=your_dingtalk_app_key
+DINGTALK_APP_SECRET=your_dingtalk_app_secret
+
+# QQ
+QQ_BOT_ENABLED=true
+QQ_BOT_API_BASE=http://127.0.0.1:3000
+EOF
+	@echo "✅ .env.example 文件已创建"
+
+## dev-setup: 开发环境设置
+dev-setup: deps gen-keys
+	@echo "✅ 开发环境设置完成"
 	@echo ""
-	@echo "Run targets:"
-	@echo "  run             - Run desktop application"
-	@echo "  run-desktop     - Run desktop application"
-	@echo "  run-cli         - Run CLI application"
-	@echo ""
-	@echo "Install targets:"
-	@echo "  install         - Install all targets"
-	@echo "  install-cli     - Install CLI binary"
-	@echo "  install-desktop - Install desktop application"
-	@echo ""
-	@echo "Test targets:"
-	@echo "  test            - Run all tests"
-	@echo "  test-unit       - Run unit tests with coverage"
-	@echo "  test-integration - Run integration tests"
-	@echo "  test-platform   - Run platform-specific tests"
-	@echo "  test-all        - Run all test suites"
-	@echo "  test-coverage   - Run tests with coverage report"
-	@echo ""
-	@echo "CI targets:"
-	@echo "  ci              - Run full CI pipeline"
-	@echo "  ci-short        - Run CI pipeline (quick, skips integration/benchmarks)"
-	@echo ""
-	@echo "Lint and security:"
-	@echo "  lint            - Run code linters and formatters"
-	@echo "  security-check  - Run security vulnerability checks"
-	@echo ""
-	@echo "Benchmarking:"
-	@echo "  benchmark       - Run benchmarks"
-	@echo ""
-	@echo "Dependency management:"
-	@echo "  deps-install    - Install platform-specific dependencies"
-	@echo "  deps-check      - Check if all dependencies are installed"
-	@echo ""
-	@echo "Clean targets:"
-	@echo "  clean           - Clean build artifacts"
-	@echo "  clean-all       - Clean all artifacts"
-	@echo ""
-	@echo "Help:"
-	@echo "  help            - Show this help message"
-	@echo ""
-	@echo "Variables:"
-	@echo "  BINARY_NAME     - Binary name (default: $(BINARY_NAME))"
-	@echo "  BUILD_DIR       - Build directory (default: $(BUILD_DIR))"
-	@echo "  DESTDIR         - Installation destination prefix"
-	@echo "  ARGS            - Arguments to pass to run-cli"
+	@echo "下一步:"
+	@echo "1. 复制 .env.example 到 .env 并填入你的 API 凭证"
+	@echo "2. 运行 'make run' 启动机器人"
+	@echo "3. 运行 'make test' 运行测试"
+
+## check: 完整检查
+check: fmt vet test
+	@echo "✅ 所有检查通过"
+
+## version: 显示版本信息
+version:
+	@echo "Version: $(VERSION)"

@@ -1,0 +1,235 @@
+# Multi-Channel Configuration Example
+# 多渠道配置示例
+#
+# This file demonstrates how to configure multiple messaging channels
+# for the AgentFramework multi-channel system
+
+version: "1.0"
+
+# Global settings
+global:
+  # Default timeout for channel operations
+  default_timeout: 30s
+
+  # Enable metrics collection
+  enable_metrics: true
+
+  # Enable OpenTelemetry tracing
+  enable_tracing: true
+
+  # Log level: debug, info, warn, error
+  log_level: info
+
+  # Maximum message size in bytes (10MB default)
+  max_message_size: 10485760
+
+  # Default rate limiting (messages per second)
+  default_rate_limit: 30
+
+# Channel configurations
+channels:
+  # Telegram Bot Configuration
+  telegram:
+    type: telegram
+    enabled: true
+
+    # Bot Token (required)
+    # Get from @BotFather on Telegram
+    token: "${TELEGRAM_BOT_TOKEN}"
+
+    # Optional: Webhook URL for production deployment
+    # webhook_url: "https://your-domain.com/telegram/webhook"
+
+    # Optional: Use webhook instead of polling
+    # use_webhook: false
+
+    # Rate limiting
+    rate_limit: 30  # messages per second
+
+    # Supported features (auto-detected)
+    supports_edits: true
+    supports_threads: false
+
+  # Discord Bot Configuration
+  discord:
+    type: discord
+    enabled: true
+
+    # Bot Token (required)
+    # Get from Discord Developer Portal
+    token: "${DISCORD_BOT_TOKEN}"
+
+    # Gateway intents
+    # platform_config:
+    #   intents:
+    #     - guilds
+    #     - guild_messages
+    #     - message_content
+
+    rate_limit: 50
+
+  # Slack Bot Configuration
+  slack:
+    type: slack
+    enabled: true
+
+    # Bot Token (required)
+    # Get from Slack App settings
+    token: "${SLACK_BOT_TOKEN}"
+
+    # App Token for Socket Mode (optional)
+    # Required if not using webhooks
+    app_token: "${SLACK_APP_TOKEN}"
+
+    # Rate limiting (Slack Tier 1)
+    rate_limit: 1
+
+  # Feishu (Lark) Configuration
+  feishu:
+    type: feishu
+    enabled: true
+
+    # App credentials (required)
+    # Get from Feishu Open Platform
+    app_id: "${FEISHU_APP_ID}"
+    app_secret: "${FEISHU_APP_SECRET}"
+
+    # Optional: Encrypt key for callback verification
+    # encrypt_key: "${FEISHU_ENCRYPT_KEY}"
+    # verification_token: "${FEISHU_VERIFICATION_TOKEN}"
+
+    rate_limit: 50
+
+  # WeWork (WeCom) Configuration
+  wework:
+    type: wework
+    enabled: true
+
+    # Corp Secret (required)
+    # Get from WeCom Management Console
+    token: "${WEWORK_CORP_SECRET}"
+
+    # Platform-specific configuration
+    platform_config:
+      corp_id: "${WEWORK_CORP_ID}"
+      agent_id: "${WEWORK_AGENT_ID}"
+      encoding_aes_key: "${WEWORK_ENCODING_AES_KEY}"
+      token: "${WEWORK_TOKEN}"
+
+    rate_limit: 100
+
+  # DingTalk Configuration
+  dingtalk:
+    type: dingtalk
+    enabled: true
+
+    # App Secret (required)
+    token: "${DINGTALK_APP_SECRET}"
+
+    # Platform-specific configuration
+    platform_config:
+      app_key: "${DINGTALK_APP_KEY}"
+      agent_id: "${DINGTALK_AGENT_ID}"
+      agent_secret: "${DINGTALK_AGENT_SECRET}"
+      encoding_aes_key: "${DINGTALK_ENCODING_AES_KEY}"
+
+    rate_limit: 20
+
+  # QQ Bot Configuration (OneBot 11)
+  qq:
+    type: qq
+    enabled: true
+
+    # Optional: Custom API base URL
+    # Defaults to http://127.0.0.1:3000 (go-cqhttp/NapCat default)
+    platform_config:
+      api_base: "http://127.0.0.1:3000"
+      self_id: "123456789"
+
+    rate_limit: 30
+
+# Routing rules for message processing
+routes:
+  # Rule 1: Accept all text messages
+  - id: "accept-text"
+    name: "Accept text messages"
+    priority: 100
+
+    # Match all text messages
+    message_type:
+      - text
+
+    # Accept and process
+    action: accept
+
+  # Rule 2: Block messages from specific users
+  - id: "block-users"
+    name: "Block specific users"
+    priority: 200
+
+    # Block specific user IDs
+    user_id:
+      - "blocked_user_1"
+      - "blocked_user_2"
+
+    # Reject these messages
+    action: reject
+
+  # Rule 3: Forward admin messages to a specific channel
+  - id: "forward-admin"
+    name: "Forward admin messages"
+    priority: 150
+
+    # Match messages from admins
+    # channel_type:
+    #   - telegram
+    #   - discord
+
+    # Match messages containing "admin"
+    pattern: "^/admin"
+
+    # Forward to admin channel
+    action: forward
+    action_data:
+      target_channel: "admin"
+
+    # Rate limit
+    rate_limit: 10
+    rate_window: 60s
+
+  # Rule 4: Rate limit for specific commands
+  - id: "rate-limit-commands"
+    name: "Rate limit bot commands"
+    priority: 180
+
+    # Match command messages
+    message_type:
+      - command
+
+    # Match commands starting with /
+    pattern: "^/"
+
+    # Rate limiting
+    rate_limit: 5
+    rate_window: 60s
+
+    action: accept
+
+  # Rule 5: Reject large messages
+  - id: "reject-large"
+    name: "Reject oversized messages"
+    priority: 190
+
+    # Match all message types
+    # Metadata-based filtering would need custom predicates
+
+    action: reject
+    metadata:
+      max_size: "1048576"  # 1MB
+
+# Notes:
+# 1. Replace ${VARIABLE_NAME} with actual values or use environment variables
+# 2. Set enabled: false for channels you don't want to use
+# 3. Adjust rate_limit based on your platform's API limits
+# 4. Use priority to control rule evaluation order (higher = first)
+# 5. See channels/types.go for all available message types and actions

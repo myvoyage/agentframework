@@ -32,6 +32,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"runtime"
 	"sync"
 	"time"
@@ -89,10 +90,9 @@ type LeakDetectionConfig struct {
 	CheckInterval      time.Duration // Interval between leak checks
 	LeakThreshold      float64       // Threshold for leak detection (in percentage increase)
 	LeakDuration       time.Duration // Duration of continuous increase to trigger leak alert
-	SampleSize         int           // Number of samples to analyze
 	ReportInterval     time.Duration // Interval between leak reports
 	HeapProfileEnabled bool          // Whether to enable heap profiling
-	SampleSize         int           `json:"sample_size"`
+	SampleSize         int           `json:"sample_size"` // Number of samples to analyze
 	SamplingRate       float64       `json:"sampling_rate"` // Sampling rate (0.0-1.0) to reduce overhead
 	MaxSamples         int           `json:"max_samples"` // Maximum samples to keep in history
 }
@@ -446,12 +446,12 @@ func (m *MemoryMonitor) triggerLeakAlert(result LeakDetectionResult) {
 		RuleID:      "leak-detection-rule",
 		Name:        "Memory Leak Detected",
 		Description: fmt.Sprintf("Memory leak detected: %.2f%% growth over %v", result.GrowthPercentage, result.Duration),
-		Severity:    AlertSeverityError,
+		Severity:    string(AlertSeverityError),
 		MetricName:  "heap_alloc",
 		MetricValue: 0, // Not applicable for leak detection
 		Threshold:   uint64(m.config.LeakDetection.LeakThreshold),
 		Operator:    ">",
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().Unix(),
 		IsActive:    true,
 	}
 
@@ -571,9 +571,6 @@ func (m *MemoryMonitor) IsLeakDetected() bool {
 func (m *MemoryMonitor) monitorLoop() {
 	ticker := time.NewTicker(m.config.Interval)
 	defer ticker.Stop()
-
-	// Initialize random source for sampling
-	import "math/rand"
 
 	for {
 		select {
@@ -737,13 +734,10 @@ func (m *MemoryMonitor) checkAlertRules(stats MemoryStats) {
 		isViolated := false
 
 		// Convert Threshold to uint64 for comparison
-		threshold, ok := rule.Threshold.(uint64)
-		if !ok {
-			// If threshold is not a uint64, skip this rule
-			continue
-		}
+		threshold := uint64(rule.Threshold)
 
-		switch rule.Operator {
+		operator := string(rule.Operator)
+		switch operator {
 		case ">":
 			isViolated = stats.HeapAlloc > threshold
 		case ">=":
@@ -781,12 +775,12 @@ func (m *MemoryMonitor) checkAlertRules(stats MemoryStats) {
 							RuleID:      rule.ID,
 							Name:        rule.Name,
 							Description: rule.Description,
-							Severity:    rule.Severity,
+							Severity:    string(rule.Severity),
 							MetricName:  "heap_alloc",
 							MetricValue: stats.HeapAlloc,
-							Threshold:   rule.Threshold,
-							Operator:    rule.Operator,
-							Timestamp:   now,
+							Threshold:   uint64(rule.Threshold),
+							Operator:    string(rule.Operator),
+							Timestamp:   now.Unix(),
 							IsActive:    true,
 						}
 
@@ -805,7 +799,7 @@ func (m *MemoryMonitor) checkAlertRules(stats MemoryStats) {
 				if alert, active := m.activeAlerts[rule.ID]; active {
 					// Deactivate the alert
 					alert.IsActive = false
-					alert.Timestamp = now
+					alert.Timestamp = now.Unix()
 
 					// Update the alert
 					m.activeAlerts[rule.ID] = alert
@@ -826,69 +820,35 @@ func (m *MemoryMonitor) checkAlertRules(stats MemoryStats) {
 
 // handleAlert handles an alert by calling all registered alert handlers
 func (m *MemoryMonitor) handleAlert(alert Alert) {
-	// Log the alert
-	logLevel := LogLevelInfo
+	// Log the alert based on severity
 	switch alert.Severity {
-	case AlertSeverityWarning:
-		logLevel = LogLevelWarning
-	case AlertSeverityError, AlertSeverityCritical:
-		logLevel = LogLevelError
-	}
-
-	// Log the alert details
-	logger := GetLogger()
-	message := fmt.Sprintf("Memory alert triggered: %s", alert.Name)
-
-	// Convert metric values to appropriate types for logging
-	var metricValue int64
-	var threshold int64
-
-	if mv, ok := alert.MetricValue.(uint64); ok {
-		metricValue = int64(mv)
-	} else if mv, ok := alert.MetricValue.(int64); ok {
-		metricValue = mv
-	} else if mv, ok := alert.MetricValue.(float64); ok {
-		metricValue = int64(mv)
-	}
-
-	if t, ok := alert.Threshold.(uint64); ok {
-		threshold = int64(t)
-	} else if t, ok := alert.Threshold.(int64); ok {
-		threshold = t
-	} else if t, ok := alert.Threshold.(float64); ok {
-		threshold = int64(t)
-	}
-
-	fields := []Field{
-		StringField("alert_id", alert.ID),
-		StringField("rule_id", alert.RuleID),
-		StringField("severity", string(alert.Severity)),
-		Int64Field("metric_value", metricValue),
-		Int64Field("threshold", threshold),
-		StringField("operator", alert.Operator),
-		BoolField("is_active", alert.IsActive),
-		StringField("component", "memory_monitor"),
-	}
-
-	switch logLevel {
-	case LogLevelTrace:
-		logger.Trace(m.ctx, message, fields...)
-	case LogLevelDebug:
-		logger.Debug(m.ctx, message, fields...)
-	case LogLevelInfo:
-		logger.Info(m.ctx, message, fields...)
-	case LogLevelWarning:
-		logger.Warning(m.ctx, message, fields...)
-	case LogLevelError:
-		logger.Error(m.ctx, message, fields...)
-	case LogLevelFatal:
-		logger.Fatal(m.ctx, message, fields...)
+	case string(AlertSeverityWarning):
+		Warn(m.ctx, "Memory alert triggered",
+			StringField("alert_id", alert.ID),
+			StringField("severity", alert.Severity),
+			StringField("message", alert.Message),
+			Uint64Field("metric_value", alert.MetricValue),
+			Uint64Field("threshold", alert.Threshold))
+	case string(AlertSeverityError), string(AlertSeverityCritical):
+		Error(m.ctx, "Critical memory alert triggered",
+			StringField("alert_id", alert.ID),
+			StringField("severity", alert.Severity),
+			StringField("message", alert.Message),
+			Uint64Field("metric_value", alert.MetricValue),
+			Uint64Field("threshold", alert.Threshold))
+	default:
+		Info(m.ctx, "Memory info alert triggered",
+			StringField("alert_id", alert.ID),
+			StringField("severity", alert.Severity),
+			StringField("message", alert.Message),
+			Uint64Field("metric_value", alert.MetricValue),
+			Uint64Field("threshold", alert.Threshold))
 	}
 
 	// Save alert to storage if provided
 	if m.config.Storage != nil {
 		go func() {
-			if err := m.config.Storage.SaveAlert(m.ctx, alert); err != nil {
+			if err := m.config.Storage.SaveAlert(alert); err != nil {
 				// Log the error using the global logger
 				Error(m.ctx, "Failed to save memory alert to storage",
 					ErrorField("error", err),

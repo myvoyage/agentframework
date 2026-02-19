@@ -1,6 +1,0 @@
-{
-  "enabledPlugins": {
-    "agent-orchestration@codebuddy-plugins-official": true,
-    "agent-browser@codebuddy-plugins-official": true
-  }
-}

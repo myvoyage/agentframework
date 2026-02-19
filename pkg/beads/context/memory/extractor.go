@@ -330,7 +330,7 @@ func (e *EntityExtractor) Extract(text string) []*context.EntityMemory {
 	var entities []*context.EntityMemory
 
 	// 检测人名（中文）
-	reChineseName := regexp.MustCompile(`[\u4e00-\u9fa5]{2,4}`)
+	reChineseName := regexp.MustCompile("[\\p{Han}]{2,4}")
 	chineseNames := reChineseName.FindAllString(text, -1)
 
 	// 去重

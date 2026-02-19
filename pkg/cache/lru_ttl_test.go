@@ -7,6 +7,7 @@
 package cache
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -80,30 +81,33 @@ func TestLRUCache_LRUOrder(t *testing.T) {
 	cache := NewLRUCache(10, 5*time.Minute)
 
 	// Add items
-	for i := 1; i <= 5; i++ {
-		key := t.Sprintf("key%d", i)
+	for i := 1; i <= 10; i++ {
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
 	// Access key1 (move to front)
 	cache.Get("key1")
 
-	// Fill cache to trigger eviction
-	for i := 6; i <= 10; i++ {
-		key := t.Sprintf("key%d", i)
-		cache.Set(key, i)
-	}
+	// Add one more (should evict key2 as it's the least recently used after key1)
+	cache.Set("key11", 11)
 
-	// key2 should be evicted (least recently used after key1)
+	// key2 should be evicted (least recently used, key1 was accessed)
 	_, ok := cache.Get("key2")
 	if ok {
 		t.Fatal("expected key2 to be evicted")
 	}
 
-	// key1 should still exist
+	// key1 should still exist (was accessed recently)
 	_, ok = cache.Get("key1")
 	if !ok {
 		t.Fatal("expected key1 to exist")
+	}
+
+	// key11 should exist
+	_, ok = cache.Get("key11")
+	if !ok {
+		t.Fatal("expected key11 to exist")
 	}
 }
 
@@ -133,13 +137,13 @@ func TestLRUCache_HitRate(t *testing.T) {
 
 	// Set some values
 	for i := 1; i <= 5; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
 	// Generate some hits and misses
 	for i := 1; i <= 5; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Get(key) // hit
 	}
 	cache.Get("key_invalid") // miss
@@ -190,7 +194,7 @@ func TestLRUCache_Clear(t *testing.T) {
 
 	// Set multiple values
 	for i := 1; i <= 5; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
@@ -254,7 +258,7 @@ func TestShardedLRUCache_Distribution(t *testing.T) {
 
 	// Add multiple items
 	for i := 0; i < 100; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
@@ -274,13 +278,13 @@ func TestShardedLRUCache_HitRate(t *testing.T) {
 
 	// Add items
 	for i := 0; i < 50; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
 	// Generate hits
 	for i := 0; i < 50; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Get(key)
 	}
 
@@ -308,7 +312,7 @@ func TestShardedLRUCache_Clear(t *testing.T) {
 
 	// Set values
 	for i := 0; i < 10; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
@@ -351,7 +355,7 @@ func TestSmartCache_WithShards(t *testing.T) {
 
 	// Test Set and Get
 	for i := 0; i < 20; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
@@ -389,7 +393,7 @@ func TestSmartCache_Clear(t *testing.T) {
 	cache := NewSmartCache(config)
 
 	for i := 1; i <= 5; i++ {
-		key := t.Sprintf("key%d", i)
+		key := fmt.Sprintf("key%d", i)
 		cache.Set(key, i)
 	}
 
@@ -432,7 +436,7 @@ func BenchmarkLRUCache_Get(b *testing.B) {
 func BenchmarkLRUCache_ParallelGet(b *testing.B) {
 	cache := NewLRUCache(10000, 5*time.Minute)
 	b.RunParallel(func(pb *testing.PB) {
-		for i := 0; i < pb.N; i++ {
+		for pb.Next() {
 			key := "key"
 			cache.Set(key, "value")
 			cache.Get(key)
@@ -452,7 +456,7 @@ func BenchmarkShardedLRUCache_Get(b *testing.B) {
 func BenchmarkShardedLRUCache_ParallelGet(b *testing.B) {
 	cache := NewShardedLRUCache(10000, 4, 5*time.Minute)
 	b.RunParallel(func(pb *testing.PB) {
-		for i := 0; i < pb.N; i++ {
+		for pb.Next() {
 			key := "key"
 			cache.Set(key, "value")
 			cache.Get(key)

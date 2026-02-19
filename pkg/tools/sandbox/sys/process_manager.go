@@ -733,9 +733,9 @@ func (m *ProcessManagerModule) getHostname() string {
 
 // getMemoryUsage 获取内存使用情况
 func (m *ProcessManagerModule) getMemoryUsage() uint64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	return m.Sys / 1024 / 1024 // 转换为 MB
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	return memStats.Sys / 1024 / 1024 // 转换为 MB
 }
 
 // isCommandAllowed 检查命令是否允许执行

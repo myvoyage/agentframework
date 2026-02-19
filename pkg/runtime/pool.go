@@ -183,7 +183,7 @@ func (p *ModelPool) Get(key string) model.ChatModel {
 
 // Put returns a model to the pool for the given key
 // If the pool is full, the model is discarded
-func (p *ModelPool) Put(key string, model model.ChatModel, poolSize int) {
+func (p *ModelPool) Put(key string, chatModel model.ChatModel, poolSize int) {
 	p.mu.Lock()
 	if _, exists := p.pools[key]; !exists {
 		p.pools[key] = make(chan model.ChatModel, poolSize)
@@ -192,7 +192,7 @@ func (p *ModelPool) Put(key string, model model.ChatModel, poolSize int) {
 	p.mu.Unlock()
 
 	select {
-	case pool <- model:
+	case pool <- chatModel:
 		// Model successfully returned to pool
 	default:
 		// Pool is full, discard the model

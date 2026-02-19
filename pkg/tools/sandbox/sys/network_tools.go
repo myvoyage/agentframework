@@ -531,7 +531,7 @@ func (m *NetworkToolsModule) makeRequest(method, url string, headers map[string]
 		"content_length": len(respBody),
 		"body":          string(respBody),
 		"time_ms":        duration.Milliseconds(),
-	}
+	}, nil
 }
 
 // dnsLookup 执行 DNS 查询
@@ -934,8 +934,9 @@ func (m *NetworkToolsModule) isPrivateIP(ip net.IP) bool {
 // isURLAllowed 检查 URL 是否允许访问
 func (m *NetworkToolsModule) isURLAllowed(url string) bool {
 	// 解析 URL 获取主机
-	parsedURL, err := regexp.MustCompile(`^[a-zA-Z]+://([^/]+)`).FindStringMatch(url)
-	if err != nil || len(parsedURL) < 2 {
+	re := regexp.MustCompile(`^[a-zA-Z]+://([^/]+)`)
+	parsedURL := re.FindStringSubmatch(url)
+	if len(parsedURL) < 2 {
 		return false
 	}
 

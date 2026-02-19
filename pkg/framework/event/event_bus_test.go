@@ -557,3 +557,231 @@ func TestHandlerError(t *testing.T) {
 		t.Errorf("Expected error for subscription %d, got errors for %v", subscription.id, errors)
 	}
 }
+
+// TestWithBatchSize tests the WithBatchSize option
+func TestWithBatchSize(t *testing.T) {
+	bus := NewMemoryEventBus(WithBatchSize(10))
+
+	if bus.batchSize != 10 {
+		t.Errorf("expected batchSize 10, got %d", bus.batchSize)
+	}
+}
+
+// TestWithQueueSize tests the WithQueueSize option
+func TestWithQueueSize(t *testing.T) {
+	bus := NewMemoryEventBus(WithQueueSize(500))
+
+	if bus.queueSize != 500 {
+		t.Errorf("expected queueSize 500, got %d", bus.queueSize)
+	}
+}
+
+// TestWithMonitor tests the WithMonitor option
+func TestWithMonitor(t *testing.T) {
+	bus := NewMemoryEventBus(WithMonitor())
+
+	if !bus.monitor {
+		t.Error("expected monitor to be true")
+	}
+}
+
+// TestMultipleOptions tests multiple options combined
+func TestMultipleOptions(t *testing.T) {
+	bus := NewMemoryEventBus(
+		WithBatchSize(5),
+		WithQueueSize(200),
+		WithMonitor(),
+		WithAsyncHandler(),
+	)
+
+	if bus.batchSize != 5 {
+		t.Errorf("expected batchSize 5, got %d", bus.batchSize)
+	}
+	if bus.queueSize != 200 {
+		t.Errorf("expected queueSize 200, got %d", bus.queueSize)
+	}
+	if !bus.monitor {
+		t.Error("expected monitor to be true")
+	}
+	if !bus.async {
+		t.Error("expected async to be true")
+	}
+}
+
+// TestGetStats tests the GetStats method
+func TestGetStats(t *testing.T) {
+	bus := NewMemoryEventBus(WithMonitor())
+
+	// Subscribe and publish some events
+	bus.Subscribe("test.topic", func(event Event) error {
+		return nil
+	})
+
+	bus.Publish("test.topic", "payload1")
+	bus.Publish("test.topic", "payload2")
+
+	stats := bus.GetStats()
+
+	if stats.EventCount != 2 {
+		t.Errorf("expected EventCount 2, got %d", stats.EventCount)
+	}
+	if !stats.IsMonitoring {
+		t.Error("expected IsMonitoring to be true")
+	}
+}
+
+// TestClose tests the Close method
+func TestClose(t *testing.T) {
+	bus := NewMemoryEventBus(WithMonitor())
+
+	// Subscribe and publish
+	bus.Subscribe("test.topic", func(event Event) error {
+		return nil
+	})
+	bus.Publish("test.topic", "payload")
+
+	// Close the bus
+	err := bus.Close()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// After close, stats should still be accessible
+	stats := bus.GetStats()
+	if stats.EventCount != 1 {
+		t.Errorf("expected EventCount 1, got %d", stats.EventCount)
+	}
+}
+
+// TestCloseWithBatchProcessor tests closing a bus with batch processing
+func TestCloseWithBatchProcessor(t *testing.T) {
+	bus := NewMemoryEventBus(WithBatchSize(10))
+
+	// The batch processor goroutine should be started
+	if bus.batchChan == nil {
+		t.Error("expected batchChan to be initialized")
+	}
+
+	// Close the bus
+	err := bus.Close()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// TestStatsTracking tests that stats are tracked correctly
+func TestStatsTracking(t *testing.T) {
+	bus := NewMemoryEventBus(WithMonitor())
+
+	var handlerCount int
+	bus.Subscribe("test.topic", func(event Event) error {
+		handlerCount++
+		return nil
+	})
+
+	// Publish events
+	for i := 0; i < 5; i++ {
+		bus.Publish("test.topic", i)
+	}
+
+	stats := bus.GetStats()
+
+	if stats.EventCount != 5 {
+		t.Errorf("expected EventCount 5, got %d", stats.EventCount)
+	}
+	if stats.HandlerCount != 5 {
+		t.Errorf("expected HandlerCount 5, got %d", stats.HandlerCount)
+	}
+}
+
+// TestStatsErrorCount tests error count in stats
+func TestStatsErrorCount(t *testing.T) {
+	bus := NewMemoryEventBus(WithMonitor())
+
+	// Subscribe with a handler that returns error
+	bus.Subscribe("test.topic", func(event Event) error {
+		return errors.New("test error")
+	})
+
+	bus.Publish("test.topic", "payload")
+
+	stats := bus.GetStats()
+
+	if stats.ErrorCount != 1 {
+		t.Errorf("expected ErrorCount 1, got %d", stats.ErrorCount)
+	}
+}
+
+// TestEventPriority tests that events are processed in priority order
+func TestEventPriority(t *testing.T) {
+	bus := NewMemoryEventBus(WithBatchSize(10))
+
+	var receivedOrder []int
+	var mu sync.Mutex
+
+	bus.Subscribe("test.topic", func(event Event) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if payload, ok := event.Payload.(int); ok {
+			receivedOrder = append(receivedOrder, payload)
+		}
+		return nil
+	})
+
+	// Publish events with different priorities
+	bus.Publish("test.topic", 3)
+	bus.Publish("test.topic", 1)
+	bus.Publish("test.topic", 2)
+
+	// Wait for batch processing
+	time.Sleep(200 * time.Millisecond)
+
+	bus.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Check that events were received
+	if len(receivedOrder) != 3 {
+		t.Errorf("expected 3 events, got %d", len(receivedOrder))
+	}
+}
+
+// TestBatchProcessing tests batch processing functionality
+func TestBatchProcessing(t *testing.T) {
+	bus := NewMemoryEventBus(WithBatchSize(3))
+
+	var eventCount int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	bus.Subscribe("test.topic", func(event Event) error {
+		mu.Lock()
+		eventCount++
+		mu.Unlock()
+		wg.Done()
+		return nil
+	})
+
+	wg.Add(3)
+
+	// Publish events - they should be processed in batches
+	bus.Publish("test.topic", 1)
+	bus.Publish("test.topic", 2)
+	bus.Publish("test.topic", 3)
+
+	// Wait for batch processing
+	wg.Wait()
+	time.Sleep(100 * time.Millisecond)
+
+	bus.Close()
+
+	mu.Lock()
+	count := eventCount
+	mu.Unlock()
+
+	if count != 3 {
+		t.Errorf("expected 3 events processed, got %d", count)
+	}
+}
+

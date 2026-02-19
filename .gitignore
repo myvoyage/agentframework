@@ -38,3 +38,31 @@ logs/
 # Temporary files
 *.tmp
 *.temp
+*.bak
+
+# Test databases
+*.db
+*.db-shm
+*.db-wal
+
+# Test executables
+*.test.exe
+*.exe
+*.test
+
+# Benchmark results
+benchmarks/*.bench
+
+# Skills cache
+.skills/
+
+# Claude configuration
+.claude/
+
+# Build artifacts
+dist/
+build/
+bin/
+
+# Vendor directory
+vendor/

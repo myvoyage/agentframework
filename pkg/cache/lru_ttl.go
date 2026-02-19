@@ -137,7 +137,7 @@ func (c *LRUCache) Clear() {
 	defer c.mu.Unlock()
 
 	c.items = make(map[string]*list.Element)
-	c.lru.Init()
+	c.lruList.Init()
 	c.hits = 0
 	c.misses = 0
 }
@@ -289,7 +289,7 @@ func (c *ShardedLRUCache) Clear() {
 // Size 获取缓存大小
 func (c *ShardedLRUCache) Size() int {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	total := 0
 	for _, shard := range c.shards {
@@ -301,7 +301,7 @@ func (c *ShardedLRUCache) Size() int {
 // Capacity 获取缓存总容量
 func (c *ShardedLRUCache) Capacity() int {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	total := 0
 	for _, shard := range c.shards {
@@ -313,7 +313,7 @@ func (c *ShardedLRUCache) Capacity() int {
 // Hits 获取缓存命中次数
 func (c *ShardedLRUCache) Hits() int64 {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	total := int64(0)
 	for _, shard := range c.shards {
@@ -325,7 +325,7 @@ func (c *ShardedLRUCache) Hits() int64 {
 // Misses 获取缓存未命中次数
 func (c *ShardedLRUCache) Misses() int64 {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	total := int64(0)
 	for _, shard := range c.shards {
@@ -337,7 +337,7 @@ func (c *ShardedLRUCache) Misses() int64 {
 // HitRate 获取缓存命中率
 func (c *ShardedLRUCache) HitRate() float64 {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	totalHits := int64(0)
 	totalMisses := int64(0)
@@ -356,7 +356,7 @@ func (c *ShardedLRUCache) HitRate() float64 {
 // Keys 获取所有键
 func (c *ShardedLRUCache) Keys() []string {
 	c.mu.RLock()
-	defer c.mu.Unlock()
+	defer c.mu.RUnlock()
 
 	var keys []string
 	for _, shard := range c.shards {

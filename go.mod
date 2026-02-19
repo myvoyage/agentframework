@@ -11,6 +11,7 @@ require (
 	github.com/cloudwego/eino-ext/components/tool/mcp v0.0.8
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/dop251/goja v0.0.0-20260106131823-651366fbe6e3
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-git/go-git/v5 v5.16.4
 	github.com/goburrow/modbus v0.1.0
@@ -157,6 +158,8 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0 // indirect
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.9.0 // indirect
+	go.uber.org/multierr v1.10.0 // indirect
+	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.11.0 // indirect

@@ -1,0 +1,100 @@
+{
+  "version": "1.0",
+  "global": {
+    "default_timeout": "30s",
+    "enable_metrics": true,
+    "enable_tracing": true,
+    "log_level": "info",
+    "max_message_size": 10485760,
+    "default_rate_limit": 30
+  },
+  "channels": {
+    "telegram": {
+      "type": "telegram",
+      "enabled": true,
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "rate_limit": 30,
+      "supports_edits": true,
+      "supports_threads": false
+    },
+    "discord": {
+      "type": "discord",
+      "enabled": false,
+      "token": "YOUR_DISCORD_BOT_TOKEN",
+      "rate_limit": 50
+    },
+    "slack": {
+      "type": "slack",
+      "enabled": false,
+      "token": "xoxb-YOUR-SLACK-BOT-TOKEN",
+      "app_token": "xapp-YOUR-SLACK-APP-TOKEN",
+      "rate_limit": 1
+    },
+    "feishu": {
+      "type": "feishu",
+      "enabled": false,
+      "app_id": "cli_YOUR_FEISHU_APP_ID",
+      "app_secret": "YOUR_FEISHU_APP_SECRET",
+      "rate_limit": 50
+    },
+    "wework": {
+      "type": "wework",
+      "enabled": false,
+      "token": "YOUR_WEWORK_CORP_SECRET",
+      "platform_config": {
+        "corp_id": "YOUR_WEWORK_CORP_ID",
+        "agent_id": "YOUR_WEWORK_AGENT_ID",
+        "encoding_aes_key": "YOUR_WEWORK_ENCODING_AES_KEY",
+        "token": "YOUR_WEWORK_TOKEN"
+      },
+      "rate_limit": 100
+    },
+    "dingtalk": {
+      "type": "dingtalk",
+      "enabled": false,
+      "token": "YOUR_DINGTALK_APP_SECRET",
+      "platform_config": {
+        "app_key": "YOUR_DINGTALK_APP_KEY",
+        "agent_id": "YOUR_DINGTALK_AGENT_ID",
+        "agent_secret": "YOUR_DINGTALK_AGENT_SECRET",
+        "encoding_aes_key": "YOUR_DINGTALK_ENCODING_AES_KEY"
+      },
+      "rate_limit": 20
+    },
+    "qq": {
+      "type": "qq",
+      "enabled": false,
+      "platform_config": {
+        "api_base": "http://127.0.0.1:3000",
+        "self_id": "YOUR_QQ_BOT_ID"
+      },
+      "rate_limit": 30
+    }
+  },
+  "routes": [
+    {
+      "id": "accept-text",
+      "name": "Accept text messages",
+      "priority": 100,
+      "message_type": ["text"],
+      "action": "accept"
+    },
+    {
+      "id": "accept-commands",
+      "name": "Accept bot commands",
+      "priority": 150,
+      "message_type": ["command"],
+      "pattern": "^/",
+      "action": "accept",
+      "rate_limit": 10,
+      "rate_window": "60s"
+    },
+    {
+      "id": "accept-media",
+      "name": "Accept media files",
+      "priority": 90,
+      "message_type": ["image", "video", "audio", "file"],
+      "action": "accept"
+    }
+  ]
+}
