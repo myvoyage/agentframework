@@ -36,21 +36,31 @@ type WorkflowInterface interface {
 
 // NodeExecutionResult represents the result of a node execution
 type NodeExecutionResult struct {
-	NodeID    string                 `json:"node_id"`
-	Success   bool                   `json:"success"`
-	Output    string                 `json:"output"`
-	Error     string                 `json:"error,omitempty"`
-	Duration  int64                  `json:"duration_ms"`
-	Metadata  map[string]interface{} `json:"metadata"`
-	Timestamp int64                  `json:"timestamp"`
+	NodeID     string                 `json:"node_id"`
+	Success    bool                   `json:"success"`
+	Status     string                 `json:"status,omitempty"`     // NodeStatusRunning, NodeStatusCompleted, NodeStatusFailed
+	Input      string                 `json:"input,omitempty"`
+	Output     string                 `json:"output"`
+	Error      string                 `json:"error,omitempty"`
+	Duration   int64                  `json:"duration_ms"`
+	StartTime  time.Time              `json:"start_time,omitempty"`
+	EndTime    time.Time              `json:"end_time,omitempty"`
+	RetryCount int                    `json:"retry_count,omitempty"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Timestamp  int64                  `json:"timestamp"`
 }
 
-// simpleAgentWorkflow is a simple agent workflow for testing
-func simpleAgentWorkflow(name string) WorkflowInterface {
-	return &DAGWorkflow{
-		name: name,
-	}
-}
+// Node status constants
+const (
+	NodeStatusPending   = "pending"
+	NodeStatusRunning   = "running"
+	NodeStatusCompleted = "completed"
+	NodeStatusFailed    = "failed"
+	NodeStatusCancelled = "cancelled"
+)
+
+// simpleAgentWorkflowAdapter is a simple agent workflow adapter
+// Note: This is now defined in workflow_dag.go as a type
 
 // WorkflowNode represents a node in a workflow
 type WorkflowNode struct {
@@ -200,6 +210,33 @@ var (
 	ErrSuspended = errors.New("workflow suspended")
 	ErrCancelled = errors.New("workflow cancelled")
 )
+
+// WorkflowCallbacks defines callbacks for workflow execution events
+type WorkflowCallbacks interface {
+	OnWorkflowStart(ctx context.Context, workflowID string, input string)
+	OnWorkflowEnd(ctx context.Context, workflowID string, output string, status WorkflowExecutionStatus)
+	OnNodeStart(ctx context.Context, nodeID string, input string)
+	OnNodeEnd(ctx context.Context, nodeID string, output string)
+}
+
+// contextKey is a type for context keys to avoid collisions
+type contextKey string
+
+const workflowCallbacksKey contextKey = "workflow_callbacks"
+
+// WithWorkflowCallbacks adds workflow callbacks to the context
+func WithWorkflowCallbacks(ctx context.Context, callbacks WorkflowCallbacks) context.Context {
+	return context.WithValue(ctx, workflowCallbacksKey, callbacks)
+}
+
+// GetWorkflowCallbacks retrieves workflow callbacks from the context
+func GetWorkflowCallbacks(ctx context.Context) WorkflowCallbacks {
+	callbacks, ok := ctx.Value(workflowCallbacksKey).(WorkflowCallbacks)
+	if !ok {
+		return nil
+	}
+	return callbacks
+}
 
 // NewMemoryCheckpointStore creates a new in-memory checkpoint store
 func NewMemoryCheckpointStore() CheckpointStore {

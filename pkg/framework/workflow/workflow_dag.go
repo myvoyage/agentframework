@@ -38,6 +38,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -47,7 +48,7 @@ import (
 
 // NodeConfig defines configuration for a DAG node.
 type NodeConfig struct {
-	Workflow   Workflow          // The workflow to execute
+	Workflow   WorkflowInterface // The workflow to execute
 	Priority   int               // Node priority (higher numbers mean higher priority)
 	MaxRetries int               // Maximum number of retries on failure
 	RetryDelay time.Duration     // Delay between retries
@@ -57,34 +58,69 @@ type NodeConfig struct {
 	Metadata   map[string]string // Additional metadata
 }
 
+// simpleAgentWorkflow adapts an Agent to WorkflowInterface
+type simpleAgentWorkflow struct {
+	name  string
+	agent Agent
+}
+
+func (w *simpleAgentWorkflow) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	result, err := w.agent.Run(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	return &schema.Message{Content: result}, nil
+}
+
+func (w *simpleAgentWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	result, err := w.agent.Run(ctx, input)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &schema.Message{Content: result}, nil, nil
+}
+
+func (w *simpleAgentWorkflow) GetID() string {
+	return w.name
+}
+
+func (w *simpleAgentWorkflow) GetName() string {
+	return w.name
+}
+
+func (w *simpleAgentWorkflow) GetType() string {
+	return "agent"
+}
+
 // DAGWorkflow represents a directed acyclic graph workflow.
 type DAGWorkflow struct {
 	name          string
-	nodes         map[string]NodeConfig // node ID to config mapping
-	edges         map[string][]string   // from -> [to1, to2]
+	nodes         sync.Map              // node ID to NodeConfig mapping (concurrent-safe)
+	edges         sync.Map              // from -> []string (concurrent-safe)
 	store         CheckpointStore
 	maxConcurrent int                  // Maximum number of concurrent nodes
-	resourcePool  map[string]int       // Resource pool for node execution
-	nodeStats     map[string]NodeStats // Node execution statistics
-	muStats       sync.RWMutex         // Mutex for protecting nodeStats
+	resourcePool  sync.Map              // Resource pool for node execution (concurrent-safe)
+	nodeStats     sync.Map              // Node execution statistics (concurrent-safe)
+	completedNodes atomic.Int64         // Atomic counter for completed nodes
 }
 
 func NewDAGWorkflow(name string) *DAGWorkflow {
 	return &DAGWorkflow{
 		name:          name,
-		nodes:         make(map[string]NodeConfig),
-		edges:         make(map[string][]string),
+		nodes:         sync.Map{},
+		edges:         sync.Map{},
 		store:         NewMemoryCheckpointStore(), // Default to memory store
 		maxConcurrent: 0,                          // 0 means no limit
-		resourcePool:  make(map[string]int),
-		nodeStats:     make(map[string]NodeStats),
+		resourcePool:  sync.Map{},
+		nodeStats:     sync.Map{},
+		completedNodes: atomic.Int64{},
 	}
 }
 
 // AddNode adds a node to the DAG with default configuration
 func (w *DAGWorkflow) AddNode(id string, wf interface{}) {
-	// Check if it's already a Workflow
-	if workflow, ok := wf.(Workflow); ok {
+	// Check if it's already a WorkflowInterface
+	if workflow, ok := wf.(WorkflowInterface); ok {
 		w.AddNodeWithConfig(id, NodeConfig{
 			Workflow:   workflow,
 			Priority:   0,
@@ -140,11 +176,15 @@ func (w *DAGWorkflow) AddNodeWithConfig(id string, cfg NodeConfig) {
 	if cfg.Metadata == nil {
 		cfg.Metadata = map[string]string{}
 	}
-	w.nodes[id] = cfg
+	w.nodes.Store(id, cfg)
 }
 
 func (w *DAGWorkflow) AddEdge(from, to string) {
-	w.edges[from] = append(w.edges[from], to)
+	// Load existing edges or create new slice
+	existing, _ := w.edges.LoadOrStore(from, []string{})
+	edges := existing.([]string)
+	edges = append(edges, to)
+	w.edges.Store(from, edges)
 }
 
 // SetMaxConcurrent sets the maximum number of concurrent nodes
@@ -158,7 +198,7 @@ func (w *DAGWorkflow) Name() string {
 	return w.name
 }
 
-func (w *DAGWorkflow) WithCheckpointStore(store CheckpointStore) Workflow {
+func (w *DAGWorkflow) WithCheckpointStore(store CheckpointStore) WorkflowInterface {
 	w.store = store
 	return w
 }
@@ -202,14 +242,30 @@ func (w *DAGWorkflow) Run(ctx context.Context, input string, opts ...model.Optio
 	}
 
 	// Run the workflow
-	resp, state, err := w.RunResumable(ctx, input, nil, opts...)
+	resp, stateInterface, err := w.RunResumable(ctx, input, nil, opts...)
 
 	// Update checkpoint with final status
 	cp.UpdatedAt = time.Now()
+	var state *WorkflowState
+	if stateInterface != nil {
+		if ws, ok := stateInterface.(*WorkflowState); ok {
+			state = ws
+		} else {
+			state = &WorkflowState{NodeStates: make(map[string]string)}
+		}
+	} else {
+		state = &WorkflowState{NodeStates: make(map[string]string)}
+	}
+	
 	if err != nil {
 		if err == ErrSuspended {
 			cp.Status = StatusSuspended
-			cp.Progress = float64(len(state.NodeStates)) / float64(len(w.nodes))
+			nodeCount := 0
+			w.nodes.Range(func(key, value interface{}) bool {
+				nodeCount++
+				return true
+			})
+			cp.Progress = float64(len(state.NodeStates)) / float64(nodeCount)
 		} else {
 			cp.Status = StatusFailed
 			cp.Error = err.Error()
@@ -220,15 +276,17 @@ func (w *DAGWorkflow) Run(ctx context.Context, input string, opts ...model.Optio
 		cp.Output = resp.Content
 	}
 
-	cp.State = state
-	_ = w.store.Save(ctx, cp)
+	cp.State = map[string]interface{}{
+		"node_states": state.NodeStates,
+	}
+	_ = w.store.SaveCheckpoint(ctx, cp)
 
 	return resp, err
 }
 
 func (w *DAGWorkflow) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
 	// Load checkpoint
-	cp, err := w.store.Load(ctx, runID)
+	cp, err := w.store.GetCheckpoint(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +299,7 @@ func (w *DAGWorkflow) Resume(ctx context.Context, runID string, input string, op
 	// Update checkpoint status to running
 	cp.Status = StatusRunning
 	cp.UpdatedAt = time.Now()
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
@@ -250,15 +308,37 @@ func (w *DAGWorkflow) Resume(ctx context.Context, runID string, input string, op
 		input = cp.Input
 	}
 
+	// Extract state from checkpoint
+	var resumeState *WorkflowState
+	if stateMap, ok := cp.State["node_states"].(map[string]string); ok {
+		resumeState = &WorkflowState{NodeStates: stateMap}
+	}
+
 	// Run the workflow from the saved state
-	resp, state, err := w.RunResumable(ctx, input, cp.State, opts...)
+	resp, stateInterface, err := w.RunResumable(ctx, input, resumeState, opts...)
+	var state *WorkflowState
+	if stateInterface != nil {
+		if ws, ok := stateInterface.(*WorkflowState); ok {
+			state = ws
+		} else {
+			// Create new state if conversion fails
+			state = &WorkflowState{NodeStates: make(map[string]string)}
+		}
+	} else {
+		state = &WorkflowState{NodeStates: make(map[string]string)}
+	}
 
 	// Update checkpoint with final status
 	cp.UpdatedAt = time.Now()
 	if err != nil {
 		if err == ErrSuspended {
 			cp.Status = StatusSuspended
-			cp.Progress = float64(len(state.NodeStates)) / float64(len(w.nodes))
+			nodeCount := 0
+			w.nodes.Range(func(key, value interface{}) bool {
+				nodeCount++
+				return true
+			})
+			cp.Progress = float64(len(state.NodeStates)) / float64(nodeCount)
 		} else {
 			cp.Status = StatusFailed
 			cp.Error = err.Error()
@@ -269,13 +349,25 @@ func (w *DAGWorkflow) Resume(ctx context.Context, runID string, input string, op
 		cp.Output = resp.Content
 	}
 
-	cp.State = state
-	_ = w.store.Save(ctx, cp)
+	cp.State = map[string]interface{}{
+		"node_states": state.NodeStates,
+	}
+	_ = w.store.SaveCheckpoint(ctx, cp)
 
 	return resp, err
 }
 
-func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeState *WorkflowState, opts ...model.Option) (*schema.Message, *WorkflowState, error) {
+func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeState interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	var state *WorkflowState
+	if resumeState != nil {
+		if ws, ok := resumeState.(*WorkflowState); ok {
+			state = ws
+		}
+	}
+	return w.runResumableInternal(ctx, input, state, opts...)
+}
+
+func (w *DAGWorkflow) runResumableInternal(ctx context.Context, input string, resumeState *WorkflowState, opts ...model.Option) (*schema.Message, *WorkflowState, error) {
 	// Initialize state
 	results := make(map[string]string)
 	if resumeState != nil && resumeState.NodeStates != nil {
@@ -286,7 +378,13 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 	results["__input__"] = input
 
 	// Calculate total nodes and completed count early
-	totalNodes := len(w.nodes)
+	// Count nodes using sync.Map
+	totalNodes := 0
+	w.nodes.Range(func(key, value interface{}) bool {
+		totalNodes++
+		return true
+	})
+	
 	completed := make(map[string]bool)
 	for id := range results {
 		if id != "__input__" {
@@ -297,14 +395,18 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 
 	// 1. Calculate in-degrees
 	inDegree := make(map[string]int)
-	for id := range w.nodes {
+	w.nodes.Range(func(key, value interface{}) bool {
+		id := key.(string)
 		inDegree[id] = 0
-	}
-	for _, tos := range w.edges {
+		return true
+	})
+	w.edges.Range(func(key, value interface{}) bool {
+		tos := value.([]string)
 		for _, to := range tos {
 			inDegree[to]++
 		}
-	}
+		return true
+	})
 
 	// Mark completed nodes in in-degree map
 	for id := range completed {
@@ -313,7 +415,7 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 
 	// 2. Calculate initial ready nodes with priority
 	// Pre-allocate slice size for readyNodes
-	readyNodes := make([]string, 0, len(w.nodes))
+	readyNodes := make([]string, 0, totalNodes)
 	for id, degree := range inDegree {
 		if degree == 0 && !completed[id] {
 			readyNodes = append(readyNodes, id)
@@ -322,7 +424,9 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 
 	// Sort ready nodes by priority (higher priority first)
 	sort.Slice(readyNodes, func(i, j int) bool {
-		return w.nodes[readyNodes[i]].Priority > w.nodes[readyNodes[j]].Priority
+		cfgI, _ := w.nodes.Load(readyNodes[i])
+		cfgJ, _ := w.nodes.Load(readyNodes[j])
+		return cfgI.(NodeConfig).Priority > cfgJ.(NodeConfig).Priority
 	})
 
 	// 3. Setup concurrent execution with improved resource management
@@ -347,10 +451,8 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 
 	// Use a sync.Map for better performance in concurrent scenarios
 	doneMap := sync.Map{}
-	for id := range w.nodes {
-		if completed[id] {
-			doneMap.Store(id, struct{}{})
-		}
+	for id := range completed {
+		doneMap.Store(id, struct{}{})
 	}
 
 	// Channels for results - use exact size based on remaining nodes
@@ -367,15 +469,18 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 	// Helper to get node dependencies
 	getDependencies := func(nodeID string) []string {
 		// Pre-allocate slice size for deps
-		deps := make([]string, 0, len(w.edges))
-		for from, tos := range w.edges {
+		deps := make([]string, 0)
+		w.edges.Range(func(key, value interface{}) bool {
+			from := key.(string)
+			tos := value.([]string)
 			for _, to := range tos {
 				if to == nodeID {
 					deps = append(deps, from)
 					break // No need to check other edges for this from node
 				}
 			}
-		}
+			return true
+		})
 		return deps
 	}
 
@@ -443,7 +548,21 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 		}
 
 		// Get node config
-		nodeCfg := w.nodes[nodeID]
+		cfgValue, ok := w.nodes.Load(nodeID)
+		if !ok {
+			resultCh <- NodeExecutionResult{
+				NodeID:     nodeID,
+				Status:     NodeStatusFailed,
+				Input:      nodeInput,
+				Output:     "",
+				StartTime:  time.Now(),
+				EndTime:    time.Now(),
+				Error:      fmt.Sprintf("node %s not found", nodeID),
+				RetryCount: 0,
+			}
+			return
+		}
+		nodeCfg := cfgValue.(NodeConfig)
 
 		// Execute with improved retry logic
 		var resp *schema.Message
@@ -485,16 +604,15 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 			if attempt >= maxRetries {
 				// Final attempt failed, return error
 				duration := time.Since(startTime)
-				// Update node stats for failed execution
-				w.muStats.Lock()
-				stats := w.nodeStats[nodeID]
+				// Update node stats for failed execution (atomic operation)
+				statsValue, _ := w.nodeStats.LoadOrStore(nodeID, NodeStats{})
+				stats := statsValue.(NodeStats)
 				stats.ExecutionCount++
 				stats.TotalDuration += duration
 				stats.AvgDuration = stats.TotalDuration / time.Duration(stats.ExecutionCount)
 				stats.ErrorCount++
 				stats.LastExecution = startTime
-				w.nodeStats[nodeID] = stats
-				w.muStats.Unlock()
+				w.nodeStats.Store(nodeID, stats)
 
 				resultCh <- NodeExecutionResult{
 					NodeID:     nodeID,
@@ -521,16 +639,15 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 		// Check if we got a response
 		if resp == nil {
 			duration := time.Since(startTime)
-			// Update node stats for failed execution
-			w.muStats.Lock()
-			stats := w.nodeStats[nodeID]
+			// Update node stats for failed execution (atomic operation)
+			statsValue, _ := w.nodeStats.LoadOrStore(nodeID, NodeStats{})
+			stats := statsValue.(NodeStats)
 			stats.ExecutionCount++
 			stats.TotalDuration += duration
 			stats.AvgDuration = stats.TotalDuration / time.Duration(stats.ExecutionCount)
 			stats.ErrorCount++
 			stats.LastExecution = startTime
-			w.nodeStats[nodeID] = stats
-			w.muStats.Unlock()
+			w.nodeStats.Store(nodeID, stats)
 
 			resultCh <- NodeExecutionResult{
 				NodeID:     nodeID,
@@ -548,16 +665,18 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 		// Calculate execution duration
 		duration := time.Since(startTime)
 
-		// Update node stats for successful execution
-		w.muStats.Lock()
-		stats := w.nodeStats[nodeID]
+		// Update node stats for successful execution (atomic operation)
+		statsValue, _ := w.nodeStats.LoadOrStore(nodeID, NodeStats{})
+		stats := statsValue.(NodeStats)
 		stats.ExecutionCount++
 		stats.TotalDuration += duration
 		stats.AvgDuration = stats.TotalDuration / time.Duration(stats.ExecutionCount)
 		stats.SuccessCount++
 		stats.LastExecution = startTime
-		w.nodeStats[nodeID] = stats
-		w.muStats.Unlock()
+		w.nodeStats.Store(nodeID, stats)
+		
+		// Increment completed nodes counter atomically
+		w.completedNodes.Add(1)
 
 		// Emit Node End
 		if cb := GetWorkflowCallbacks(ctx); cb != nil {
@@ -627,18 +746,22 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 			}
 
 			// Update in-degree for dependent nodes and check for new ready nodes
-			for _, to := range w.edges[result.NodeID] {
-				mu.Lock()
-				inDegree[to]--
-				currentDegree := inDegree[to]
-				mu.Unlock()
+			edgesValue, ok := w.edges.Load(result.NodeID)
+			if ok {
+				tos := edgesValue.([]string)
+				for _, to := range tos {
+					mu.Lock()
+					inDegree[to]--
+					currentDegree := inDegree[to]
+					mu.Unlock()
 
-				if currentDegree == 0 {
-					// Node is now ready
-					select {
-					case newReadyNodesCh <- to:
-					case <-ctx.Done():
-						return nil, nil, ctx.Err()
+					if currentDegree == 0 {
+						// Node is now ready
+						select {
+						case newReadyNodesCh <- to:
+						case <-ctx.Done():
+							return nil, nil, ctx.Err()
+						}
 					}
 				}
 			}
@@ -659,12 +782,17 @@ func (w *DAGWorkflow) RunResumable(ctx context.Context, input string, resumeStat
 
 	// Calculate final output (leaves)
 	outCounts := make(map[string]int)
-	for id := range w.nodes {
+	w.nodes.Range(func(key, value interface{}) bool {
+		id := key.(string)
 		outCounts[id] = 0
-	}
-	for from, tos := range w.edges {
+		return true
+	})
+	w.edges.Range(func(key, value interface{}) bool {
+		from := key.(string)
+		tos := value.([]string)
 		outCounts[from] = len(tos)
-	}
+		return true
+	})
 
 	var finalOutputs []string
 	mu.Lock()

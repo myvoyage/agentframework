@@ -535,5 +535,29 @@ func (m *MonitoringManager) GetSystemMetrics(updateInterval time.Duration) *Syst
 	return m.NewSystemMetrics(updateInterval)
 }
 
-// mu 读写锁 - 注释：在实际实现中应该使用 sync.RWMutex
-// 为简单起见，这里使用不带锁的 map，生产环境应添加适当的锁机制
+// StartMetricsServer starts the HTTP server for metrics and health checks
+func (m *MonitoringManager) StartMetricsServer(ctx context.Context, healthChecker interface{}, port int) error {
+	// Type assertion for health checker
+	hc, ok := healthChecker.(interface {
+		GetStatus(context.Context) map[string]interface{}
+	})
+	if !ok {
+		return fmt.Errorf("health checker does not implement required interface")
+	}
+
+	// Create a wrapper that implements health.Checker interface
+	wrapper := &healthCheckerWrapper{checker: hc}
+	server := NewServer(m, wrapper, port)
+	return server.Start(ctx)
+}
+
+// healthCheckerWrapper wraps any health checker to implement the interface
+type healthCheckerWrapper struct {
+	checker interface {
+		GetStatus(context.Context) map[string]interface{}
+	}
+}
+
+func (w *healthCheckerWrapper) GetStatus(ctx context.Context) map[string]interface{} {
+	return w.checker.GetStatus(ctx)
+}

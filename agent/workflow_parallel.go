@@ -96,28 +96,49 @@ func (w *AggregatingParallelWorkflow) Run(ctx context.Context, input string, opt
 		go func() {
 			defer wg.Done()
 
-			// Acquire semaphore
-			sem <- struct{}{}
+			// Check if context is already cancelled before starting
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			// Acquire semaphore with context cancellation support
+			select {
+			case sem <- struct{}{}:
+				// Acquired semaphore
+			case <-ctx.Done():
+				return
+			}
 			defer func() {
 				// Release semaphore
 				<-sem
 			}()
 
-			// Create timeout context
+			// Create timeout context that respects parent context cancellation
 			timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(w.timeout)*time.Second)
 			defer cancel()
 
 			// Run agent with timeout
 			msg, agentErr := ag.Run(timeoutCtx, input, opts...)
 
+			// Check if context was cancelled during execution
+			if ctx.Err() != nil {
+				return
+			}
+
 			mutex.Lock()
 			defer mutex.Unlock()
 
 			if agentErr != nil {
-				// Only send first error
+				// Only send first error (non-blocking)
 				if err == nil {
 					err = fmt.Errorf("agent %d failed: %w", i, agentErr)
-					errChan <- err
+					select {
+					case errChan <- err:
+					default:
+						// Error channel full, skip
+					}
 				}
 				return
 			}
@@ -140,10 +161,14 @@ func (w *AggregatingParallelWorkflow) Run(ctx context.Context, input string, opt
 			return nil, err
 		}
 	case agentErr := <-errChan:
-		// An agent failed
+		// An agent failed - wait for all goroutines to finish before returning
+		// This ensures no goroutine leaks
+		<-waitDone
 		return nil, agentErr
 	case <-ctx.Done():
-		// Context canceled
+		// Context canceled - wait for all goroutines to finish
+		// This ensures proper cleanup and no goroutine leaks
+		<-waitDone
 		return nil, ctx.Err()
 	}
 

@@ -31,6 +31,9 @@ type RealTimeAgent struct {
 	bufferSize     int
 	maxWorkers     int
 	enabledMetrics bool
+	ctx            context.Context    // Context for managing goroutine lifecycle
+	cancel         context.CancelFunc // Cancel function to stop all goroutines
+	started        bool               // Track if agent has been started
 }
 
 // Event represents a real-time event.
@@ -59,8 +62,19 @@ func NewRealTimeAgent(bufferSize, maxWorkers int, metricsEnabled bool) *RealTime
 
 // Initialize initializes the real-time agent.
 func (a *RealTimeAgent) Initialize(ctx context.Context) error {
-	// Start event bus processor
-	go a.processEventBus(ctx)
+	a.mutex.Lock()
+	defer a.mutex.Unlock()
+
+	if a.started {
+		return fmt.Errorf("real-time agent already initialized")
+	}
+
+	// Create a cancellable context for managing goroutine lifecycle
+	a.ctx, a.cancel = context.WithCancel(ctx)
+	a.started = true
+
+	// Start event bus processor with agent's context
+	go a.processEventBus(a.ctx)
 
 	return nil
 }
@@ -96,8 +110,14 @@ func (a *RealTimeAgent) CreatePipeline(ctx context.Context, pipelineID string, p
 
 	a.pipelines[pipelineID] = pipeline
 
-	// Start consuming pipeline output
-	go a.consumePipelineOutput(ctx, pipelineID, pipeline)
+	// Start consuming pipeline output with agent's context
+	// Use agent context to ensure goroutine can be cancelled when agent closes
+	agentCtx := a.ctx
+	if agentCtx == nil {
+		// Fallback to provided context if agent not initialized
+		agentCtx = ctx
+	}
+	go a.consumePipelineOutput(agentCtx, pipelineID, pipeline)
 
 	return nil
 }
@@ -149,9 +169,17 @@ func (a *RealTimeAgent) UnsubscribeEvents(ctx context.Context, eventType string,
 
 // PublishEvent publishes an event to the event bus.
 func (a *RealTimeAgent) PublishEvent(ctx context.Context, event Event) error {
+	// Use agent context if available for cancellation
+	agentCtx := a.ctx
+	if agentCtx == nil {
+		agentCtx = ctx
+	}
+
 	select {
 	case a.eventBus <- event:
 		return nil
+	case <-agentCtx.Done():
+		return fmt.Errorf("event bus closed: %w", agentCtx.Err())
 	case <-time.After(100 * time.Millisecond):
 		return fmt.Errorf("event bus timeout")
 	}
@@ -173,20 +201,37 @@ func (a *RealTimeAgent) processEventBus(ctx context.Context) {
 func (a *RealTimeAgent) notifySubscribers(ctx context.Context, event Event) {
 	a.mutex.RLock()
 	handlers, exists := a.subscribers[event.Type]
+	// Create a copy of handlers to avoid holding lock during execution
+	handlersCopy := make([]EventHandler, len(handlers))
+	copy(handlersCopy, handlers)
 	a.mutex.RUnlock()
 
-	if !exists {
+	if !exists || len(handlersCopy) == 0 {
 		return
 	}
 
-	for _, handler := range handlers {
+	// Use agent context if available, otherwise use provided context
+	agentCtx := a.ctx
+	if agentCtx == nil {
+		agentCtx = ctx
+	}
+
+	for _, handler := range handlersCopy {
+		// Check if context is cancelled before starting goroutine
+		select {
+		case <-agentCtx.Done():
+			return
+		default:
+		}
+
 		go func(h EventHandler) {
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Printf("Event handler panic: %v\n", r)
 				}
 			}()
-			h(ctx, event)
+			// Use agent context to allow cancellation
+			h(agentCtx, event)
 		}(handler)
 	}
 }
@@ -311,6 +356,15 @@ func (a *RealTimeAgent) Close(ctx context.Context) error {
 	a.mutex.Lock()
 	defer a.mutex.Unlock()
 
+	if !a.started {
+		return nil // Already closed or never started
+	}
+
+	// Cancel all goroutines by cancelling the context
+	if a.cancel != nil {
+		a.cancel()
+	}
+
 	// Stop all pipelines
 	for pipelineID, pipeline := range a.pipelines {
 		pipeline.Stop()
@@ -326,7 +380,15 @@ func (a *RealTimeAgent) Close(ctx context.Context) error {
 	// Clear subscribers
 	a.subscribers = make(map[string][]EventHandler)
 
-	close(a.eventBus)
+	// Close event bus channel safely
+	select {
+	case <-a.eventBus:
+		// Channel already closed or empty
+	default:
+		close(a.eventBus)
+	}
+
+	a.started = false
 
 	return nil
 }

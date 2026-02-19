@@ -16,8 +16,21 @@ import (
 	"strings"
 )
 
+// contextKey is a type for context keys to avoid collisions
+type contextKey string
+
+const jwtSubjectKey contextKey = "jwt_subject"
+
+// GetJWTSubject retrieves the JWT subject from context
+func GetJWTSubject(ctx context.Context) (string, bool) {
+	subject, ok := ctx.Value(jwtSubjectKey).(string)
+	return subject, ok
+}
+
 type JWTMiddleware struct {
-	Audience string
+	Audience  string
+	SecretKey string // HMAC secret key for signature verification
+	Algorithm string // JWT algorithm (HS256, HS384, HS512)
 }
 
 // Middleware wraps an http.Handler and enforces JWT Authorization header validation.
@@ -29,12 +42,13 @@ func (m *JWTMiddleware) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		if _, err := ValidateJWT(token, m.Audience); err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
+		subject, err := ValidateJWTWithSecret(token, m.Audience, m.SecretKey, m.Algorithm)
+		if err != nil {
+			http.Error(w, "unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
-		// propagate context with a placeholder subject if needed
-		ctx := context.WithValue(r.Context(), "jwt_subject", token)
+		// propagate context with subject
+		ctx := context.WithValue(r.Context(), jwtSubjectKey, subject)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

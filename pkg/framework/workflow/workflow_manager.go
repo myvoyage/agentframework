@@ -37,7 +37,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"AgentFramework/agent/errors"
+	"AgentFramework/pkg/errors"
 )
 
 // WorkflowVersion represents a version of a workflow
@@ -430,5 +430,5 @@ func getCurrentTime() string {
 
 var (
 	// ErrWorkflowNotFound indicates that a workflow was not found
-	ErrWorkflowNotFound = errors.New(errors.ErrCodeNotFound, "workflow not found")
+	ErrWorkflowNotFound = errors.New(errors.ErrCodeWorkflowNotFound, "workflow not found")
 )

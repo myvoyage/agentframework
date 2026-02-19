@@ -30,11 +30,14 @@ const (
 	ErrCodeResourceExhausted      ErrorCode = "RESOURCE_EXHAUSTED"
 
 	// Agent errors
-	ErrCodeAgentNotFound  ErrorCode = "AGENT_NOT_FOUND"
-	ErrCodeAgentCreation  ErrorCode = "AGENT_CREATION_FAILED"
-	ErrCodeAgentExecution ErrorCode = "AGENT_EXECUTION_FAILED"
-	ErrCodeAgentTimeout   ErrorCode = "AGENT_TIMEOUT"
-	ErrCodeAgentResource  ErrorCode = "AGENT_RESOURCE_ERROR"
+	ErrCodeAgentNotFound     ErrorCode = "AGENT_NOT_FOUND"
+	ErrCodeAgentCreation     ErrorCode = "AGENT_CREATION_FAILED"
+	ErrCodeAgentExecution    ErrorCode = "AGENT_EXECUTION_FAILED"
+	ErrCodeAgentTimeout      ErrorCode = "AGENT_TIMEOUT"
+	ErrCodeAgentResource     ErrorCode = "AGENT_RESOURCE_ERROR"
+	ErrCodeExecutionFailed   ErrorCode = "EXECUTION_FAILED"
+	ErrCodeInitFailed        ErrorCode = "INITIALIZATION_FAILED"
+	ErrCodeShutdownFailed    ErrorCode = "SHUTDOWN_FAILED"
 
 	// Workflow errors
 	ErrCodeWorkflowNotFound  ErrorCode = "WORKFLOW_NOT_FOUND"
@@ -61,6 +64,11 @@ const (
 	ErrCodeStoreOperation  ErrorCode = "STORE_OPERATION_FAILED"
 	ErrCodeStoreTimeout    ErrorCode = "STORE_TIMEOUT"
 	ErrCodeStoreConnection ErrorCode = "STORE_CONNECTION_ERROR"
+
+	// Plugin errors
+	ErrCodeDownloadFailed   ErrorCode = "PLUGIN_DOWNLOAD_FAILED"
+	ErrCodeInstallFailed    ErrorCode = "PLUGIN_INSTALL_FAILED"
+	ErrCodeValidationFailed ErrorCode = "VALIDATION_FAILED"
 )
 
 // AgentError defines the standard error structure for Agent Framework
