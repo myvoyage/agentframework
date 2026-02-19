@@ -47,19 +47,46 @@ func NewJWTValidator(secretKey string, algorithm string) *JWTValidator {
 	}
 }
 
-// ValidateJWT validates a JWT token with signature verification:
+// ValidateJWT validates a JWT token with signature verification.
+//
+// SECURITY NOTICE: This function now requires signature verification.
+// A secret key MUST be provided. Use ValidateJWTWithSecret instead.
+//
+// Validation includes:
 // - structure (three parts: header.payload.signature)
-// - signature verification
-// - expiration
-// - audience (optional, if provided)
+// - signature verification (MANDATORY)
+// - algorithm validation (only HS256, HS384, HS512 allowed)
+// - expiration checking
+// - audience validation (optional, if provided)
+//
 // Returns the subject (sub) if valid, or an error.
+//
+// Deprecated: Use ValidateJWTWithSecret for explicit security configuration.
 func ValidateJWT(token string, expectedAud string) (string, error) {
-	// For backward compatibility, use default validator if no secret configured
-	// In production, you should always use ValidateJWTWithSecret
-	return ValidateJWTWithSecret(token, expectedAud, "", "")
+	return "", errors.New("ValidateJWT is deprecated: use ValidateJWTWithSecret with a secret key")
 }
 
-// ValidateJWTWithSecret validates a JWT token with signature verification
+// ValidateJWTWithSecret validates a JWT token with signature verification.
+//
+// SECURITY REQUIREMENTS:
+// - secretKey is MANDATORY and cannot be empty
+// - Only HS256, HS384, and HS512 algorithms are permitted
+// - The "none" algorithm is explicitly rejected
+//
+// Validation steps:
+// 1. Token structure validation (header.payload.signature)
+// 2. Signature verification (MANDATORY - will fail without secret key)
+// 3. Algorithm validation (must match allowed algorithms)
+// 4. Expiration checking
+// 5. Audience validation (optional, if provided)
+//
+// Parameters:
+//   - token: The JWT token to validate
+//   - expectedAud: Expected audience claim (optional, can be empty)
+//   - secretKey: The HMAC secret key (MANDATORY for production use)
+//   - algorithm: Expected algorithm (optional, defaults to HS256)
+//
+// Returns the subject (sub) claim if valid, or an error.
 func ValidateJWTWithSecret(token string, expectedAud string, secretKey string, algorithm string) (string, error) {
 	token = strings.TrimSpace(token)
 	if token == "" {
@@ -91,17 +118,31 @@ func ValidateJWTWithSecret(token string, expectedAud string, secretKey string, a
 	if !ok {
 		return "", errors.New("missing algorithm in header")
 	}
+
+	// SECURITY: Reject "none" algorithm immediately
+	if alg == "none" {
+		return "", errors.New("'none' algorithm is not permitted for security reasons")
+	}
+
+	// SECURITY: Only allow HMAC-based algorithms
+	if alg != "HS256" && alg != "HS384" && alg != "HS512" {
+		return "", fmt.Errorf("unsupported algorithm: %s (only HS256, HS384, HS512 are permitted)", alg)
+	}
+
+	// Verify the algorithm matches what was configured
+	if algorithm != "" && alg != algorithm {
+		return "", fmt.Errorf("algorithm mismatch: expected %s, got %s", algorithm, alg)
+	}
 	
-	// If secret key is provided, verify signature
-	if secretKey != "" {
-		if err := verifySignature(headerPart+"."+payloadPart, signaturePart, secretKey, alg); err != nil {
-			return "", fmt.Errorf("signature verification failed: %w", err)
-		}
-	} else {
-		// If no secret provided but token has signature, reject (security: never accept unsigned tokens)
-		if signaturePart != "" {
-			return "", errors.New("signature verification required but no secret key provided")
-		}
+	// SECURITY: Signature verification is now mandatory
+	// Reject tokens without signature verification
+	if secretKey == "" {
+		return "", errors.New("JWT validation requires a secret key for signature verification")
+	}
+
+	// Verify signature - this is now mandatory
+	if err := verifySignature(headerPart+"."+payloadPart, signaturePart, secretKey, alg); err != nil {
+		return "", fmt.Errorf("signature verification failed: %w", err)
 	}
 	
 	// Decode payload
