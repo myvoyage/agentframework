@@ -36,6 +36,64 @@ type Message struct {
 	Timestamp int64                  `json:"timestamp"`
 }
 
+// MemoryItemType represents the type of memory item
+type MemoryItemType string
+
+const (
+	MemoryItemTypeThought     MemoryItemType = "thought"
+	MemoryItemTypeAction      MemoryItemType = "action"
+	MemoryItemTypeObservation MemoryItemType = "observation"
+	MemoryItemTypeMessage     MemoryItemType = "message"
+	MemoryItemTypeContext     MemoryItemType = "context"
+)
+
+// MemoryItem represents a single item stored in memory
+type MemoryItem struct {
+	ID        string                 `json:"id"`
+	Type      MemoryItemType          `json:"type"`
+	SessionID string                 `json:"session_id"`
+	Content   string                 `json:"content"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	Timestamp int64                  `json:"timestamp"`
+}
+
+// Query represents a memory search query
+type Query struct {
+	SessionID string                 `json:"session_id"`
+	Type      MemoryItemType         `json:"type,omitempty"`
+	Content   string                 `json:"content,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	StartTime int64                  `json:"start_time,omitempty"`
+	EndTime   int64                  `json:"end_time,omitempty"`
+}
+
+// SearchOptions represents options for memory search
+type SearchOptions struct {
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+	OrderBy   string `json:"order_by"` // "timestamp", "relevance"
+	OrderDesc bool   `json:"order_desc"`
+}
+
+// Manager is the interface for memory management operations
+type Manager interface {
+	// Store stores a memory item
+	Store(ctx context.Context, item *MemoryItem) error
+	// Retrieve retrieves memory items by session ID
+	Retrieve(ctx context.Context, sessionID string, limit int) ([]*MemoryItem, error)
+	// Search searches for memory items by query
+	Search(ctx context.Context, query string, limit int) ([]*MemoryItem, error)
+	// Clear clears all memory items for a session
+	Clear(ctx context.Context, sessionID string) error
+}
+
+// SearchableManager extends Manager with advanced search capabilities
+type SearchableManager interface {
+	Manager
+	// SearchWithOptions searches for memory items with advanced options
+	SearchWithOptions(ctx context.Context, pattern string, options *SearchOptions) ([]*MemoryItem, error)
+}
+
 // AlertHandlerID is a unique identifier for alert handlers
 type AlertHandlerID string
 

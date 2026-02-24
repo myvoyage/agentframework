@@ -8,6 +8,7 @@ package monitoring
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	"AgentFramework/pkg/health"
 	"AgentFramework/pkg/metrics"
 )
 
@@ -537,27 +539,26 @@ func (m *MonitoringManager) GetSystemMetrics(updateInterval time.Duration) *Syst
 
 // StartMetricsServer starts the HTTP server for metrics and health checks
 func (m *MonitoringManager) StartMetricsServer(ctx context.Context, healthChecker interface{}, port int) error {
-	// Type assertion for health checker
-	hc, ok := healthChecker.(interface {
-		GetStatus(context.Context) map[string]interface{}
+	// Create a new health.Checker instance
+	checker := health.New()
+
+	// Register a health check that wraps the provided healthChecker
+	checker.Register("system", func(ctx context.Context) error {
+		// Try to get status from the provided healthChecker
+		if hc, ok := healthChecker.(interface {
+			GetStatus(context.Context) map[string]interface{}
+		}); ok {
+			status := hc.GetStatus(ctx)
+			// Check if the status indicates a healthy state
+			if healthy, ok := status["healthy"].(bool); ok && healthy {
+				return nil
+			}
+			return fmt.Errorf("health check failed: %v", status)
+		}
+		// If no health checker provided, assume healthy
+		return nil
 	})
-	if !ok {
-		return fmt.Errorf("health checker does not implement required interface")
-	}
 
-	// Create a wrapper that implements health.Checker interface
-	wrapper := &healthCheckerWrapper{checker: hc}
-	server := NewServer(m, wrapper, port)
+	server := NewServer(m, checker, port)
 	return server.Start(ctx)
-}
-
-// healthCheckerWrapper wraps any health checker to implement the interface
-type healthCheckerWrapper struct {
-	checker interface {
-		GetStatus(context.Context) map[string]interface{}
-	}
-}
-
-func (w *healthCheckerWrapper) GetStatus(ctx context.Context) map[string]interface{} {
-	return w.checker.GetStatus(ctx)
 }

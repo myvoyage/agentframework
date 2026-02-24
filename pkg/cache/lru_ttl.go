@@ -13,7 +13,7 @@ import (
 )
 
 // LRUCache Least Recently Used cache
-type LRUCache struct {
+type SimpleLRUCache struct {
 	capacity int
 	items    map[string]*list.Element
 	lruList   *list.List
@@ -34,7 +34,7 @@ type cacheEntry struct {
 }
 
 // NewLRUCache 创建新的 LRU 缓存
-func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
+func NewSimpleLRUCache(capacity int, ttl time.Duration) *SimpleLRUCache {
 	if capacity <= 0 {
 		capacity = 1000 // 默认容量
 	}
@@ -42,7 +42,7 @@ func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
 		ttl = 5 * time.Minute // 默认TTL 5分钟
 	}
 
-	return &LRUCache{
+	return &SimpleLRUCache{
 		capacity: capacity,
 		items:    make(map[string]*list.Element),
 		lruList:   list.New(),
@@ -51,7 +51,7 @@ func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
 }
 
 // Set 设置缓存值
-func (c *LRUCache) Set(key string, value interface{}, ttl ...time.Duration) {
+func (c *SimpleLRUCache) Set(key string, value interface{}, ttl ...time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -91,7 +91,7 @@ func (c *LRUCache) Set(key string, value interface{}, ttl ...time.Duration) {
 }
 
 // Get 获取缓存值
-func (c *LRUCache) Get(key string) (interface{}, bool) {
+func (c *SimpleLRUCache) Get(key string) (interface{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -122,7 +122,7 @@ func (c *LRUCache) Get(key string) (interface{}, bool) {
 }
 
 // Delete 删除缓存值
-func (c *LRUCache) Delete(key string) {
+func (c *SimpleLRUCache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -132,7 +132,7 @@ func (c *LRUCache) Delete(key string) {
 }
 
 // Clear 清空缓存
-func (c *LRUCache) Clear() {
+func (c *SimpleLRUCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -143,7 +143,7 @@ func (c *LRUCache) Clear() {
 }
 
 // Size 获取缓存大小
-func (c *LRUCache) Size() int {
+func (c *SimpleLRUCache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -151,7 +151,7 @@ func (c *LRUCache) Size() int {
 }
 
 // Capacity 获取缓存容量
-func (c *LRUCache) Capacity() int {
+func (c *SimpleLRUCache) Capacity() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -159,7 +159,7 @@ func (c *LRUCache) Capacity() int {
 }
 
 // Hits 获取缓存命中次数
-func (c *LRUCache) Hits() int64 {
+func (c *SimpleLRUCache) Hits() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -167,7 +167,7 @@ func (c *LRUCache) Hits() int64 {
 }
 
 // Misses 获取缓存未命中次数
-func (c *LRUCache) Misses() int64 {
+func (c *SimpleLRUCache) Misses() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -175,7 +175,7 @@ func (c *LRUCache) Misses() int64 {
 }
 
 // HitRate 获取缓存命中率
-func (c *LRUCache) HitRate() float64 {
+func (c *SimpleLRUCache) HitRate() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -187,7 +187,7 @@ func (c *LRUCache) HitRate() float64 {
 }
 
 // Keys 获取所有键
-func (c *LRUCache) Keys() []string {
+func (c *SimpleLRUCache) Keys() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -199,7 +199,7 @@ func (c *LRUCache) Keys() []string {
 }
 
 // evict 淘汰最少使用的条目
-func (c *LRUCache) evict() {
+func (c *SimpleLRUCache) evict() {
 	elem := c.lruList.Back()
 	if elem != nil {
 		c.removeElement(elem)
@@ -207,14 +207,14 @@ func (c *LRUCache) evict() {
 }
 
 // removeElement 移除元素
-func (c *LRUCache) removeElement(elem *list.Element) {
+func (c *SimpleLRUCache) removeElement(elem *list.Element) {
 	entry := elem.Value.(*cacheEntry)
 	delete(c.items, entry.key)
 	c.lruList.Remove(elem)
 }
 
 // cleanupExpired 清理过期条目
-func (c *LRUCache) cleanupExpired() {
+func (c *SimpleLRUCache) cleanupExpired() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -233,7 +233,7 @@ func (c *LRUCache) cleanupExpired() {
 
 // ShardedLRUCache 分片 LRU 缓存
 type ShardedLRUCache struct {
-	shards    []*LRUCache
+	shards    []*SimpleLRUCache
 	shardMask uint32
 	mu        sync.RWMutex
 }
@@ -247,9 +247,9 @@ func NewShardedLRUCache(capacityPerShard int, shardCount uint32, ttl time.Durati
 		shardCount = roundToPowerOfTwo(shardCount)
 	}
 
-	shards := make([]*LRUCache, shardCount)
+	shards := make([]*SimpleLRUCache, shardCount)
 	for i := range shards {
-		shards[i] = NewLRUCache(capacityPerShard, ttl)
+		shards[i] = NewSimpleLRUCache(capacityPerShard, ttl)
 	}
 
 	return &ShardedLRUCache{
@@ -376,7 +376,7 @@ func (c *ShardedLRUCache) cleanupExpired() {
 }
 
 // getShard 获取分片
-func (c *ShardedLRUCache) getShard(key string) *LRUCache {
+func (c *ShardedLRUCache) getShard(key string) *SimpleLRUCache {
 	hash := fnv32(key)
 	return c.shards[hash&c.shardMask]
 }
@@ -419,7 +419,7 @@ type CacheConfig struct {
 
 // SmartCache 智能缓存（支持多种策略）
 type SmartCache struct {
-	lru      *LRUCache
+	lru      *SimpleLRUCache
 	sharded  *ShardedLRUCache
 	config   *CacheConfig
 	stopChan chan bool
@@ -450,7 +450,7 @@ func NewSmartCache(config *CacheConfig) *SmartCache {
 			config.TTL,
 		)
 	} else {
-		cache.lru = NewLRUCache(
+		cache.lru = NewSimpleLRUCache(
 			config.Capacity,
 			config.TTL,
 		)

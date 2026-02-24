@@ -13,12 +13,10 @@ package iot
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
 
-	"AgentFramework/pkg/iot/adapters"
 )
 
 // WorkflowEngine manages IoT automation workflows.
@@ -54,10 +52,7 @@ func (e *WorkflowEngine) Start(ctx context.Context) error {
 		return fmt.Errorf("workflow engine already running")
 	}
 
-	// Start event bus
-	if err := e.eventBus.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start event bus: %w", err)
-	}
+	// Note: EventBus auto-starts in NewEventBus, no need to call Start()
 
 	// Start scheduler
 	if err := e.scheduler.Start(ctx); err != nil {
@@ -89,10 +84,7 @@ func (e *WorkflowEngine) Stop(ctx context.Context) error {
 		return fmt.Errorf("failed to stop scheduler: %w", err)
 	}
 
-	// Stop event bus
-	if err := e.eventBus.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop event bus: %w", err)
-	}
+	// Note: EventBus will stop when its context is cancelled
 
 	e.isRunning = false
 	return nil
@@ -112,7 +104,7 @@ func (e *WorkflowEngine) RegisterWorkflow(workflow *Workflow) error {
 	// Subscribe to workflow trigger events
 	for _, trigger := range workflow.Triggers {
 		if trigger.Type == TriggerTypeEvent {
-			_ = e.eventBus.Subscribe(trigger.Event, func(event Event) {
+			_ = e.eventBus.Subscribe(trigger.Event, func(ctx context.Context, event Event) {
 				if workflow.Enabled {
 					go e.executeWorkflow(context.Background(), workflow, event)
 				}
@@ -276,7 +268,7 @@ func (e *WorkflowEngine) RegisterRule(rule *AutomationRule) error {
 	// Subscribe to rule trigger events
 	for _, trigger := range rule.Triggers {
 		if trigger.Type == TriggerTypeEvent {
-			_ = e.eventBus.Subscribe(trigger.Event, func(event Event) {
+			_ = e.eventBus.Subscribe(trigger.Event, func(ctx context.Context, event Event) {
 				if rule.Enabled {
 					go e.evaluateRule(context.Background(), rule, event)
 				}
@@ -404,7 +396,7 @@ func (e *WorkflowEngine) evaluateCondition(condition Condition, event Event) boo
 
 	case ConditionTypeEvent:
 		// Check event condition
-		return event.Type == condition.Event
+		return string(event.Type) == condition.Event
 
 	case ConditionTypeExpression:
 		// Evaluate expression (simplified)
@@ -437,10 +429,12 @@ func (e *WorkflowEngine) executeAction(ctx context.Context, action Action) error
 
 	case ActionTypeNotification:
 		// Send notification
-		_ = e.eventBus.Publish(Event{
-			Type:    "notification",
-			Source:  "workflow_engine",
-			Payload: map[string]interface{}{
+		e.eventBus.Publish(Event{
+			ID:        generateEventID(),
+			Type:      EventType("notification"),
+			Source:    "workflow_engine",
+			Timestamp: time.Now(),
+			Data: map[string]interface{}{
 				"title":   action.Title,
 				"message": action.Message,
 			},
@@ -556,87 +550,6 @@ type AutomationRule struct {
 	Conditions []Condition `json:"conditions"`
 	Actions    []Action    `json:"actions"`
 	Metadata   map[string]interface{} `json:"metadata"`
-}
-
-// Event represents an event in the system.
-type Event struct {
-	Type      string                 `json:"type"`
-	Source    string                 `json:"source"`
-	Timestamp time.Time              `json:"timestamp"`
-	Payload   map[string]interface{} `json:"payload"`
-}
-
-// EventBus manages event subscriptions and publishing.
-type EventBus struct {
-	subscribers map[string][]chan Event
-	mutex       sync.RWMutex
-	running     bool
-}
-
-// NewEventBus creates a new event bus.
-func NewEventBus() *EventBus {
-	return &EventBus{
-		subscribers: make(map[string][]chan Event),
-	}
-}
-
-// Start starts the event bus.
-func (b *EventBus) Start(ctx context.Context) error {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	b.running = true
-	return nil
-}
-
-// Stop stops the event bus.
-func (b *EventBus) Stop(ctx context.Context) error {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	b.running = false
-	return nil
-}
-
-// Subscribe subscribes to events.
-func (b *EventBus) Subscribe(eventType string, handler func(Event)) error {
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	ch := make(chan Event, 100)
-	b.subscribers[eventType] = append(b.subscribers[eventType], ch)
-
-	go func() {
-		for event := range ch {
-			handler(event)
-		}
-	}()
-
-	return nil
-}
-
-// Publish publishes an event.
-func (b *EventBus) Publish(event Event) error {
-	b.mutex.RLock()
-	defer b.mutex.RUnlock()
-
-	if !b.running {
-		return fmt.Errorf("event bus not running")
-	}
-
-	event.Timestamp = time.Now()
-
-	if subscribers, ok := b.subscribers[event.Type]; ok {
-		for _, ch := range subscribers {
-			select {
-			case ch <- event:
-			default:
-				// Channel full, drop event
-			}
-		}
-	}
-
-	return nil
 }
 
 // TaskScheduler manages scheduled tasks.

@@ -14,11 +14,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/cloudwego/eino-ext/components/model/openai"
+	"time"
 
 	"AgentFramework/agent"
 	"AgentFramework/core"
@@ -43,13 +39,8 @@ func NewEnhancedApp() *EnhancedApp {
 			},
 		},
 		SkillSystemDir: ".skills",
-		// Security configuration
-		JWTSecret:   os.Getenv("JWT_SECRET"),
-		JWTAlgorithm: "HS256",
-		Audience:    "agentframework",
-		AdminUserID: "admin",
-		// Performance configuration
-		RedisEnabled: false, // TODO: Add Redis configuration
+		// Note: JWTSecret, JWTAlgorithm, Audience, AdminUserID, RedisEnabled
+		// should be configured through the security layer, not HostConfig
 	}
 
 	// 创建模型工厂

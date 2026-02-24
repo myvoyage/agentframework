@@ -49,7 +49,7 @@ func (am *AuthMiddleware) Authenticate(r *http.Request) (string, error) {
 	// This is a simplified example - implement proper JWT validation
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
-		return "", errors.New("authorization header required")
+		return "", errors.New(errors.ErrCodeUnauthorized, "authorization header required")
 	}
 
 	// In production, validate the JWT token and extract user ID
@@ -310,7 +310,7 @@ func NewPermissionChecker(rbac *RBACManager) *PermissionChecker {
 func (pc *PermissionChecker) Check(r *http.Request, resource, action string) error {
 	userID := GetUserID(r.Context())
 	if userID == "" {
-		return errors.New("user not authenticated")
+		return errors.New(errors.ErrCodeUnauthorized, "user not authenticated")
 	}
 
 	if !pc.rbac.CheckPermission(userID, resource, action) {
@@ -324,7 +324,7 @@ func (pc *PermissionChecker) Check(r *http.Request, resource, action string) err
 func (pc *PermissionChecker) CheckWithScope(r *http.Request, resource, action, scope string) error {
 	userID := GetUserID(r.Context())
 	if userID == "" {
-		return errors.New("user not authenticated")
+		return errors.New(errors.ErrCodeUnauthorized, "user not authenticated")
 	}
 
 	if !pc.rbac.CheckPermissionWithScope(userID, resource, action, scope) {
@@ -338,7 +338,7 @@ func (pc *PermissionChecker) CheckWithScope(r *http.Request, resource, action, s
 func (pc *PermissionChecker) MustAdmin(r *http.Request) error {
 	userID := GetUserID(r.Context())
 	if userID == "" {
-		return errors.New("user not authenticated")
+		return errors.New(errors.ErrCodeUnauthorized, "user not authenticated")
 	}
 
 	if !pc.rbac.CheckPermission(userID, "*", "*") {

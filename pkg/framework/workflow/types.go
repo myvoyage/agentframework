@@ -5,12 +5,15 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
+	"gopkg.in/yaml.v3"
 )
 
 // Workflow represents a workflow definition
@@ -23,6 +26,21 @@ type Workflow struct {
 	Edges       []WorkflowEdge         `json:"edges"`
 	Variables   map[string]interface{} `json:"variables"`
 	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// GetID returns the workflow ID
+func (w *Workflow) GetID() string {
+	return w.ID
+}
+
+// GetName returns the workflow name
+func (w *Workflow) GetName() string {
+	return w.Name
+}
+
+// GetType returns the workflow type
+func (w *Workflow) GetType() string {
+	return w.Type
 }
 
 // WorkflowInterface defines the workflow execution interface
@@ -112,12 +130,66 @@ type NodeState struct {
 
 // WorkflowExecutionResult represents the result of a workflow execution
 type WorkflowExecutionResult struct {
+	WorkflowID  string                 `json:"workflow_id"`
 	ExecutionID string                 `json:"execution_id"`
 	Success     bool                   `json:"success"`
 	Output      map[string]interface{} `json:"output"`
 	Error       string                 `json:"error,omitempty"`
 	Duration    int64                  `json:"duration_ms"`
 	NodeResults map[string]interface{} `json:"node_results"`
+}
+
+// InMemoryWorkflowExecutionStore is an in-memory implementation of WorkflowExecutionStore
+type InMemoryWorkflowExecutionStore struct {
+	executions map[string]*WorkflowExecution
+	mu         sync.RWMutex
+}
+
+// NewInMemoryWorkflowExecutionStore creates a new in-memory workflow execution store
+func NewInMemoryWorkflowExecutionStore() *InMemoryWorkflowExecutionStore {
+	return &InMemoryWorkflowExecutionStore{
+		executions: make(map[string]*WorkflowExecution),
+	}
+}
+
+// SaveExecution saves a workflow execution
+func (s *InMemoryWorkflowExecutionStore) SaveExecution(ctx context.Context, execution *WorkflowExecution) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.executions[execution.ID] = execution
+	return nil
+}
+
+// GetExecution gets a workflow execution by ID
+func (s *InMemoryWorkflowExecutionStore) GetExecution(ctx context.Context, executionID string) (*WorkflowExecution, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	exec, ok := s.executions[executionID]
+	if !ok {
+		return nil, fmt.Errorf("execution not found: %s", executionID)
+	}
+	return exec, nil
+}
+
+// ListExecutions lists all executions for a workflow
+func (s *InMemoryWorkflowExecutionStore) ListExecutions(ctx context.Context, workflowID string) ([]*WorkflowExecution, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*WorkflowExecution
+	for _, exec := range s.executions {
+		if exec.WorkflowID == workflowID {
+			result = append(result, exec)
+		}
+	}
+	return result, nil
+}
+
+// DeleteExecution deletes a workflow execution
+func (s *InMemoryWorkflowExecutionStore) DeleteExecution(ctx context.Context, executionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.executions, executionID)
+	return nil
 }
 
 // SkillLibrary manages available skills
@@ -373,4 +445,125 @@ type TaskStatus struct {
 	StartedAt   time.Time              `json:"started_at,omitempty"`
 	CompletedAt time.Time              `json:"completed_at,omitempty"`
 	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// WorkflowDefinition defines a workflow for parsing from JSON/YAML
+type WorkflowDefinition struct {
+	Type        string                    `json:"type" yaml:"type"`
+	Name        string                    `json:"name" yaml:"name"`
+	Description string                    `json:"description,omitempty" yaml:"description,omitempty"`
+	Nodes       map[string]NodeDefinition `json:"nodes" yaml:"nodes"`
+	Edges       []WorkflowEdgeDefinition  `json:"edges,omitempty" yaml:"edges,omitempty"`
+	Variables   map[string]interface{}    `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Metadata    map[string]interface{}    `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+}
+
+// NodeDefinition defines a node in a workflow
+type NodeDefinition struct {
+	Type   string                 `json:"type" yaml:"type"`
+	Name   string                 `json:"name" yaml:"name"`
+	Config map[string]interface{} `json:"config,omitempty" yaml:"config,omitempty"`
+}
+
+// WorkflowEdgeDefinition defines an edge between nodes in a workflow
+type WorkflowEdgeDefinition struct {
+	From string `json:"from" yaml:"from"`
+	To   string `json:"to" yaml:"to"`
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+}
+
+// ParseWorkflowDefinition parses a JSON/YAML workflow definition string into a WorkflowDefinition struct
+func ParseWorkflowDefinition(definition string) (*WorkflowDefinition, error) {
+	var wfDef WorkflowDefinition
+
+	// Try JSON parsing first
+	if err := json.Unmarshal([]byte(definition), &wfDef); err != nil {
+		// Try YAML parsing if JSON fails
+		if err := yaml.Unmarshal([]byte(definition), &wfDef); err != nil {
+			return nil, fmt.Errorf("failed to parse workflow definition: %w", err)
+		}
+	}
+
+	// Validate required fields
+	if wfDef.Type == "" {
+		return nil, fmt.Errorf("workflow type is required")
+	}
+
+	return &wfDef, nil
+}
+
+// CreateWorkflowFromDefinition creates a WorkflowInterface instance from a WorkflowDefinition
+func CreateWorkflowFromDefinition(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (WorkflowInterface, error) {
+	switch def.Type {
+	case "sequential":
+		return createSequentialWorkflowFromDef(def, skillLibrary, modelFactory)
+	case "parallel":
+		return createParallelWorkflowFromDef(def, skillLibrary, modelFactory)
+	case "dag":
+		return createDAGWorkflowFromDef(def, skillLibrary, modelFactory)
+	case "graph":
+		return createGraphWorkflowFromDef(def, skillLibrary, modelFactory)
+	default:
+		return nil, fmt.Errorf("unsupported workflow type: %s", def.Type)
+	}
+}
+
+// createSequentialWorkflowFromDef creates a sequential workflow from definition
+func createSequentialWorkflowFromDef(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (WorkflowInterface, error) {
+	// For now, create a simple DAG workflow with sequential edges
+	dagWf := NewDAGWorkflow(def.Name)
+
+	// Create a list of node IDs in order
+	var nodeIDs []string
+	for nodeID := range def.Nodes {
+		nodeIDs = append(nodeIDs, nodeID)
+	}
+
+	// Add nodes to the workflow (empty for now, as we need agents)
+	for i, nodeID := range nodeIDs {
+		// Create a placeholder node configuration
+		dagWf.AddNode(nodeID, nil) // nil will be replaced with actual workflow/agent later
+
+		// Add edges to create sequential execution
+		if i > 0 {
+			dagWf.AddEdge(nodeIDs[i-1], nodeID)
+		}
+	}
+
+	return dagWf, nil
+}
+
+// createParallelWorkflowFromDef creates a parallel workflow from definition
+func createParallelWorkflowFromDef(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (WorkflowInterface, error) {
+	dagWf := NewDAGWorkflow(def.Name)
+
+	// Add all nodes without edges (parallel execution)
+	for nodeID := range def.Nodes {
+		dagWf.AddNode(nodeID, nil)
+	}
+
+	return dagWf, nil
+}
+
+// createDAGWorkflowFromDef creates a DAG workflow from definition
+func createDAGWorkflowFromDef(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (WorkflowInterface, error) {
+	dagWf := NewDAGWorkflow(def.Name)
+
+	// Add all nodes
+	for nodeID := range def.Nodes {
+		dagWf.AddNode(nodeID, nil)
+	}
+
+	// Add edges
+	for _, edge := range def.Edges {
+		dagWf.AddEdge(edge.From, edge.To)
+	}
+
+	return dagWf, nil
+}
+
+// createGraphWorkflowFromDef creates a graph workflow from definition
+func createGraphWorkflowFromDef(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (WorkflowInterface, error) {
+	// Graph workflow is similar to DAG for now
+	return createDAGWorkflowFromDef(def, skillLibrary, modelFactory)
 }

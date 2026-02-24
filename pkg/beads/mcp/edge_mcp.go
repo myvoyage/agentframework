@@ -36,6 +36,22 @@ func NewEdgeMCPTools(edgeAgent *agent.EdgeAgent) *EdgeMCPTools {
 	}
 }
 
+// unmarshalArgs is a helper function to unmarshal MCP tool arguments.
+// Arguments can be either []byte or map[string]interface{} depending on how
+// the MCP library parsed the incoming JSON.
+func unmarshalArgs(args any, v interface{}) error {
+	// If args is already []byte, use it directly
+	if b, ok := args.([]byte); ok {
+		return json.Unmarshal(b, v)
+	}
+	// Otherwise, marshal to JSON then unmarshal to the target struct
+	jsonData, err := json.Marshal(args)
+	if err != nil {
+		return fmt.Errorf("failed to marshal arguments: %w", err)
+	}
+	return json.Unmarshal(jsonData, v)
+}
+
 // RegisterTools registers all edge computing MCP tools with the MCP server.
 func (t *EdgeMCPTools) RegisterTools(s *server.MCPServer) {
 	// DeployModel tool
@@ -265,18 +281,22 @@ func (t *EdgeMCPTools) RegisterTools(s *server.MCPServer) {
 }
 
 func (t *EdgeMCPTools) handleDeployModel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deploymentID, _ := request.Params.Arguments["deployment_id"].(string)
-	modelPath, _ := request.Params.Arguments["model_path"].(string)
-	deviceTypeStr, _ := request.Params.Arguments["device_type"].(string)
+	var params struct {
+		DeploymentID string                 `json:"deployment_id"`
+		ModelPath    string                 `json:"model_path"`
+		DeviceType   string                 `json:"device_type"`
+		Config       map[string]interface{} `json:"config"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	deviceType, err := t.parseDeviceType(deviceTypeStr)
+	deviceType, err := t.parseDeviceType(params.DeviceType)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid device type: %v", err)), nil
 	}
 
-	config, _ := request.Params.Arguments["config"].(map[string]interface{})
-
-	deployment, err := t.agent.DeployModel(ctx, deploymentID, modelPath, deviceType, config)
+	deployment, err := t.agent.DeployModel(ctx, params.DeploymentID, params.ModelPath, deviceType, params.Config)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to deploy model: %v", err)), nil
 	}
@@ -286,25 +306,35 @@ func (t *EdgeMCPTools) handleDeployModel(ctx context.Context, request mcp.CallTo
 }
 
 func (t *EdgeMCPTools) handleUndeployModel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deploymentID, _ := request.Params.Arguments["deployment_id"].(string)
+	var params struct {
+		DeploymentID string `json:"deployment_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.UndeployModel(ctx, deploymentID); err != nil {
+	if err := t.agent.UndeployModel(ctx, params.DeploymentID); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to undeploy model: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully undeployed model %s", deploymentID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully undeployed model %s", params.DeploymentID)), nil
 }
 
 func (t *EdgeMCPTools) handleOptimizeModel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	modelPath, _ := request.Params.Arguments["model_path"].(string)
-	deviceTypeStr, _ := request.Params.Arguments["device_type"].(string)
+	var params struct {
+		ModelPath  string `json:"model_path"`
+		DeviceType string `json:"device_type"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	deviceType, err := t.parseDeviceType(deviceTypeStr)
+	deviceType, err := t.parseDeviceType(params.DeviceType)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid device type: %v", err)), nil
 	}
 
-	optimizedPath, err := t.agent.OptimizeModel(ctx, modelPath, deviceType)
+	optimizedPath, err := t.agent.OptimizeModel(ctx, params.ModelPath, deviceType)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to optimize model: %v", err)), nil
 	}
@@ -313,10 +343,15 @@ func (t *EdgeMCPTools) handleOptimizeModel(ctx context.Context, request mcp.Call
 }
 
 func (t *EdgeMCPTools) handleCompressModel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	modelPath, _ := request.Params.Arguments["model_path"].(string)
-	compressionLevel, _ := request.Params.Arguments["compression_level"].(float64)
+	var params struct {
+		ModelPath        string  `json:"model_path"`
+		CompressionLevel float64 `json:"compression_level"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	compressedPath, err := t.agent.CompressModel(ctx, modelPath, int(compressionLevel))
+	compressedPath, err := t.agent.CompressModel(ctx, params.ModelPath, int(params.CompressionLevel))
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to compress model: %v", err)), nil
 	}
@@ -325,15 +360,20 @@ func (t *EdgeMCPTools) handleCompressModel(ctx context.Context, request mcp.Call
 }
 
 func (t *EdgeMCPTools) handleQuantizeModel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	modelPath, _ := request.Params.Arguments["model_path"].(string)
-	quantizationTypeStr, _ := request.Params.Arguments["quantization_type"].(string)
+	var params struct {
+		ModelPath         string `json:"model_path"`
+		QuantizationType  string `json:"quantization_type"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	quantizationType, err := t.parseQuantizationType(quantizationTypeStr)
+	quantizationType, err := t.parseQuantizationType(params.QuantizationType)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid quantization type: %v", err)), nil
 	}
 
-	quantizedPath, err := t.agent.QuantizeModel(ctx, modelPath, quantizationType)
+	quantizedPath, err := t.agent.QuantizeModel(ctx, params.ModelPath, quantizationType)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to quantize model: %v", err)), nil
 	}
@@ -342,9 +382,14 @@ func (t *EdgeMCPTools) handleQuantizeModel(ctx context.Context, request mcp.Call
 }
 
 func (t *EdgeMCPTools) handleGetDeployment(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deploymentID, _ := request.Params.Arguments["deployment_id"].(string)
+	var params struct {
+		DeploymentID string `json:"deployment_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	deployment, err := t.agent.GetDeployment(ctx, deploymentID)
+	deployment, err := t.agent.GetDeployment(ctx, params.DeploymentID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get deployment: %v", err)), nil
 	}
@@ -368,9 +413,14 @@ func (t *EdgeMCPTools) handleListDeployments(ctx context.Context, request mcp.Ca
 }
 
 func (t *EdgeMCPTools) handleGetPerformanceMetrics(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deploymentID, _ := request.Params.Arguments["deployment_id"].(string)
+	var params struct {
+		DeploymentID string `json:"deployment_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	metrics, err := t.agent.GetPerformanceMetrics(ctx, deploymentID)
+	metrics, err := t.agent.GetPerformanceMetrics(ctx, params.DeploymentID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get performance metrics: %v", err)), nil
 	}
@@ -390,33 +440,44 @@ func (t *EdgeMCPTools) handleGetAllPerformanceMetrics(ctx context.Context, reque
 }
 
 func (t *EdgeMCPTools) handleAllocateResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	allocationID, _ := request.Params.Arguments["allocation_id"].(string)
-	memoryMB, _ := request.Params.Arguments["memory_mb"].(float64)
-	cpuPercent, _ := request.Params.Arguments["cpu_percent"].(float64)
-
-	duration := 0
-	if durationSeconds, ok := request.Params.Arguments["duration_seconds"].(float64); ok {
-		duration = int(durationSeconds)
+	var params struct {
+		AllocationID    string  `json:"allocation_id"`
+		MemoryMB        float64 `json:"memory_mb"`
+		CPUPercent      float64 `json:"cpu_percent"`
+		DurationSeconds float64 `json:"duration_seconds,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	memory := int64(memoryMB * 1024 * 1024) // Convert MB to bytes
-	cpu := cpuPercent / 100.0 // Convert percentage to fraction
+	duration := 0
+	if params.DurationSeconds > 0 {
+		duration = int(params.DurationSeconds)
+	}
 
-	if err := t.agent.AllocateResources(ctx, allocationID, memory, cpu, time.Duration(duration)*time.Second); err != nil {
+	memory := int64(params.MemoryMB * 1024 * 1024) // Convert MB to bytes
+	cpu := params.CPUPercent / 100.0               // Convert percentage to fraction
+
+	if err := t.agent.AllocateResources(ctx, params.AllocationID, memory, cpu, time.Duration(duration)*time.Second); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to allocate resources: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully allocated resources: %s", allocationID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully allocated resources: %s", params.AllocationID)), nil
 }
 
 func (t *EdgeMCPTools) handleReleaseResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	allocationID, _ := request.Params.Arguments["allocation_id"].(string)
+	var params struct {
+		AllocationID string `json:"allocation_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.ReleaseResources(ctx, allocationID); err != nil {
+	if err := t.agent.ReleaseResources(ctx, params.AllocationID); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to release resources: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully released resources: %s", allocationID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully released resources: %s", params.AllocationID)), nil
 }
 
 func (t *EdgeMCPTools) handleGetAvailableResources(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {

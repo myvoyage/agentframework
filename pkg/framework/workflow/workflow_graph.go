@@ -41,7 +41,7 @@ import (
 // It uses a state machine approach where each node returns the next node to execute.
 type GraphWorkflow struct {
 	name      string
-	nodes     map[string]Workflow
+	nodes     map[string]WorkflowInterface
 	startNode string
 	// edges maps nodeID -> condition function that returns next nodeID
 	// If condition is nil, it's a terminal node (or use END)
@@ -57,7 +57,7 @@ const (
 func NewGraphWorkflow(name string) *GraphWorkflow {
 	return &GraphWorkflow{
 		name:  name,
-		nodes: make(map[string]Workflow),
+		nodes: make(map[string]WorkflowInterface),
 		edges: make(map[string]EdgeCondition),
 	}
 }
@@ -66,7 +66,7 @@ func (w *GraphWorkflow) Name() string {
 	return w.name
 }
 
-func (w *GraphWorkflow) AddNode(id string, wf Workflow) {
+func (w *GraphWorkflow) AddNode(id string, wf WorkflowInterface) {
 	w.nodes[id] = wf
 }
 

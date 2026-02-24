@@ -13,7 +13,7 @@ import (
 )
 
 func TestLRUCache_Basic(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Test Set and Get
 	cache.Set("key1", "value1")
@@ -27,7 +27,7 @@ func TestLRUCache_Basic(t *testing.T) {
 }
 
 func TestLRUCache_Overwrite(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Set initial value
 	cache.Set("key1", "value1")
@@ -45,7 +45,7 @@ func TestLRUCache_Overwrite(t *testing.T) {
 }
 
 func TestLRUCache_Eviction(t *testing.T) {
-	cache := NewLRUCache(3, 5*time.Minute)
+	cache := NewSimpleLRUCache(3, 5*time.Minute)
 
 	// Fill cache
 	cache.Set("key1", "value1")
@@ -78,7 +78,7 @@ func TestLRUCache_Eviction(t *testing.T) {
 }
 
 func TestLRUCache_LRUOrder(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Add items
 	for i := 1; i <= 10; i++ {
@@ -112,7 +112,7 @@ func TestLRUCache_LRUOrder(t *testing.T) {
 }
 
 func TestLRUCache_Expiration(t *testing.T) {
-	cache := NewLRUCache(10, 100*time.Millisecond)
+	cache := NewSimpleLRUCache(10, 100*time.Millisecond)
 
 	// Set with short TTL
 	cache.Set("key1", "value1", 50*time.Millisecond)
@@ -133,7 +133,7 @@ func TestLRUCache_Expiration(t *testing.T) {
 }
 
 func TestLRUCache_HitRate(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Set some values
 	for i := 1; i <= 5; i++ {
@@ -168,7 +168,7 @@ func TestLRUCache_HitRate(t *testing.T) {
 }
 
 func TestLRUCache_Delete(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Set value
 	cache.Set("key1", "value1")
@@ -190,7 +190,7 @@ func TestLRUCache_Delete(t *testing.T) {
 }
 
 func TestLRUCache_Clear(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Set multiple values
 	for i := 1; i <= 5; i++ {
@@ -216,7 +216,7 @@ func TestLRUCache_Clear(t *testing.T) {
 }
 
 func TestLRUCache_Keys(t *testing.T) {
-	cache := NewLRUCache(10, 5*time.Minute)
+	cache := NewSimpleLRUCache(10, 5*time.Minute)
 
 	// Set multiple values
 	expectedKeys := []string{"key1", "key2", "key3"}
@@ -232,7 +232,7 @@ func TestLRUCache_Keys(t *testing.T) {
 }
 
 func TestLRUCache_Capacity(t *testing.T) {
-	cache := NewLRUCache(5, 5*time.Minute)
+	cache := NewSimpleLRUCache(5, 5*time.Minute)
 
 	if cache.Capacity() != 5 {
 		t.Fatalf("expected capacity 5, got %d", cache.Capacity())
@@ -425,7 +425,7 @@ func TestSmartCache_Stop(t *testing.T) {
 
 // Benchmark tests
 func BenchmarkLRUCache_Get(b *testing.B) {
-	cache := NewLRUCache(10000, 5*time.Minute)
+	cache := NewSimpleLRUCache(10000, 5*time.Minute)
 	for i := 0; i < b.N; i++ {
 		key := "key"
 		cache.Set(key, "value")
@@ -434,7 +434,7 @@ func BenchmarkLRUCache_Get(b *testing.B) {
 }
 
 func BenchmarkLRUCache_ParallelGet(b *testing.B) {
-	cache := NewLRUCache(10000, 5*time.Minute)
+	cache := NewSimpleLRUCache(10000, 5*time.Minute)
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			key := "key"

@@ -390,24 +390,29 @@ func (t *HardwareMCPTools) RegisterTools(s *server.MCPServer) {
 }
 
 func (t *HardwareMCPTools) handleConnectDevice(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	driverType, _ := request.Params.Arguments["driver_type"].(string)
-	config, _ := request.Params.Arguments["config"].(map[string]interface{})
+	var params struct {
+		DeviceID   string                 `json:"device_id"`
+		DriverType string                 `json:"driver_type"`
+		Config     map[string]interface{} `json:"config"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
 	// Parse configuration based on driver type
 	var configData interface{}
 	var err error
 
-	switch driverType {
+	switch params.DriverType {
 	case "serial":
-		configJSON, _ := json.Marshal(config)
+		configJSON, _ := json.Marshal(params.Config)
 		serialConfig := &hardware.SerialDeviceConfig{}
 		err = json.Unmarshal(configJSON, serialConfig)
 		if err == nil {
 			configData = serialConfig
 		}
 	case "modbus":
-		configJSON, _ := json.Marshal(config)
+		configJSON, _ := json.Marshal(params.Config)
 		modbusConfig := &hardware.ModbusDeviceConfig{}
 		err = json.Unmarshal(configJSON, modbusConfig)
 		if err == nil {
@@ -416,71 +421,81 @@ func (t *HardwareMCPTools) handleConnectDevice(ctx context.Context, request mcp.
 	case "can":
 		// Parse CAN configuration
 		canConfig := &drivers.CANDeviceConfig{}
-		if iface, ok := config["interface"].(string); ok {
+		if iface, ok := params.Config["interface"].(string); ok {
 			canConfig.Interface = iface
 		} else {
 			canConfig.Interface = "can0"
 		}
-		if baudRate, ok := config["baud_rate"].(float64); ok {
+		if baudRate, ok := params.Config["baud_rate"].(float64); ok {
 			canConfig.BaudRate = int(baudRate)
 		} else {
 			canConfig.BaudRate = 500000
 		}
-		if timeout, ok := config["timeout"].(float64); ok {
+		if timeout, ok := params.Config["timeout"].(float64); ok {
 			canConfig.Timeout = int(timeout)
 		}
-		if enableFD, ok := config["enable_fd"].(bool); ok {
+		if enableFD, ok := params.Config["enable_fd"].(bool); ok {
 			canConfig.EnableFD = enableFD
 		}
 		configData = canConfig
 	case "gpio":
 		// Parse GPIO configuration
 		gpioConfig := &drivers.GPIODeviceConfig{}
-		if chip, ok := config["chip"].(string); ok {
+		if chip, ok := params.Config["chip"].(string); ok {
 			gpioConfig.Chip = chip
 		} else {
 			gpioConfig.Chip = "gpiochip0"
 		}
-		if pinCount, ok := config["pin_count"].(float64); ok {
+		if pinCount, ok := params.Config["pin_count"].(float64); ok {
 			gpioConfig.PinCount = int(pinCount)
 		} else {
 			gpioConfig.PinCount = 28
 		}
-		if platform, ok := config["platform"].(string); ok {
+		if platform, ok := params.Config["platform"].(string); ok {
 			gpioConfig.Platform = platform
 		}
 		configData = gpioConfig
 	default:
-		configData = config
+		configData = params.Config
 	}
 
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Invalid configuration: %v", err)), nil
 	}
 
-	if err := t.agent.ConnectDevice(ctx, deviceID, driverType, configData); err != nil {
+	if err := t.agent.ConnectDevice(ctx, params.DeviceID, params.DriverType, configData); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to connect to device: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully connected to device %s", deviceID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully connected to device %s", params.DeviceID)), nil
 }
 
 func (t *HardwareMCPTools) handleDisconnectDevice(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	var params struct {
+		DeviceID string `json:"device_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.DisconnectDevice(ctx, deviceID); err != nil {
+	if err := t.agent.DisconnectDevice(ctx, params.DeviceID); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to disconnect from device: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully disconnected from device %s", deviceID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully disconnected from device %s", params.DeviceID)), nil
 }
 
 func (t *HardwareMCPTools) handleSendCommand(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	command, _ := request.Params.Arguments["command"].(string)
-	params, _ := request.Params.Arguments["params"].(map[string]interface{})
+	var params struct {
+		DeviceID string                 `json:"device_id"`
+		Command  string                 `json:"command"`
+		Params   map[string]interface{} `json:"params"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, command, params)
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, params.Command, params.Params)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to send command: %v", err)), nil
 	}
@@ -490,14 +505,20 @@ func (t *HardwareMCPTools) handleSendCommand(ctx context.Context, request mcp.Ca
 }
 
 func (t *HardwareMCPTools) handleReceiveData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-
-	timeout := 5000 * time.Millisecond
-	if timeoutMs, ok := request.Params.Arguments["timeout_ms"].(float64); ok {
-		timeout = time.Duration(timeoutMs) * time.Millisecond
+	var params struct {
+		DeviceID  string  `json:"device_id"`
+		TimeoutMs float64 `json:"timeout_ms,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	data, err := t.agent.ReceiveData(ctx, deviceID, timeout)
+	timeout := 5000 * time.Millisecond
+	if params.TimeoutMs > 0 {
+		timeout = time.Duration(params.TimeoutMs) * time.Millisecond
+	}
+
+	data, err := t.agent.ReceiveData(ctx, params.DeviceID, timeout)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to receive data: %v", err)), nil
 	}
@@ -507,9 +528,14 @@ func (t *HardwareMCPTools) handleReceiveData(ctx context.Context, request mcp.Ca
 }
 
 func (t *HardwareMCPTools) handleGetDeviceStatus(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
+	var params struct {
+		DeviceID string `json:"device_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	status, err := t.agent.GetDeviceStatus(ctx, deviceID)
+	status, err := t.agent.GetDeviceStatus(ctx, params.DeviceID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get device status: %v", err)), nil
 	}
@@ -539,16 +565,18 @@ func (t *HardwareMCPTools) handleListDrivers(ctx context.Context, request mcp.Ca
 }
 
 func (t *HardwareMCPTools) handleExecuteCommandSequence(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	sequenceInterface, _ := request.Params.Arguments["sequence"].(interface{})
-	sequenceArray, _ := sequenceInterface.([]interface{})
-
-	commandSequence := &agent.CommandSequence{
-		Commands: make([]agent.Command, 0),
+	var params struct {
+		Sequence []map[string]interface{} `json:"sequence"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	for _, cmdInterface := range sequenceArray {
-		cmdMap, _ := cmdInterface.(map[string]interface{})
+	commandSequence := &agent.CommandSequence{
+		Commands: make([]agent.Command, 0, len(params.Sequence)),
+	}
 
+	for _, cmdMap := range params.Sequence {
 		cmd := agent.Command{}
 		if deviceID, ok := cmdMap["device_id"].(string); ok {
 			cmd.DeviceID = deviceID
@@ -578,25 +606,25 @@ func (t *HardwareMCPTools) handleExecuteCommandSequence(ctx context.Context, req
 // ===== CAN Bus Handlers =====
 
 func (t *HardwareMCPTools) handleCANSendFrame(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	id, _ := request.Params.Arguments["id"].(float64)
-
-	var data []interface{}
-	if dataInterface, ok := request.Params.Arguments["data"]; ok {
-		data, _ = dataInterface.([]interface{})
+	var params struct {
+		DeviceID   string        `json:"device_id"`
+		ID         float64       `json:"id"`
+		Data       []interface{} `json:"data"`
+		IsExtended bool          `json:"is_extended"`
+		IsRemote   bool          `json:"is_remote"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	isExtended, _ := request.Params.Arguments["is_extended"].(bool)
-	isRemote, _ := request.Params.Arguments["is_remote"].(bool)
-
-	params := map[string]interface{}{
-		"id":          uint32(id),
-		"data":        data,
-		"is_extended": isExtended,
-		"is_remote":   isRemote,
+	sendParams := map[string]interface{}{
+		"id":          uint32(params.ID),
+		"data":        params.Data,
+		"is_extended": params.IsExtended,
+		"is_remote":   params.IsRemote,
 	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, "send_frame", params)
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "send_frame", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to send CAN frame: %v", err)), nil
 	}
@@ -606,14 +634,20 @@ func (t *HardwareMCPTools) handleCANSendFrame(ctx context.Context, request mcp.C
 }
 
 func (t *HardwareMCPTools) handleCANReceiveFrame(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-
-	timeout := 5000 * time.Millisecond
-	if timeoutMs, ok := request.Params.Arguments["timeout_ms"].(float64); ok {
-		timeout = time.Duration(timeoutMs) * time.Millisecond
+	var params struct {
+		DeviceID  string  `json:"device_id"`
+		TimeoutMs float64 `json:"timeout_ms,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	data, err := t.agent.ReceiveData(ctx, deviceID, timeout)
+	timeout := 5000 * time.Millisecond
+	if params.TimeoutMs > 0 {
+		timeout = time.Duration(params.TimeoutMs) * time.Millisecond
+	}
+
+	data, err := t.agent.ReceiveData(ctx, params.DeviceID, timeout)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to receive CAN frame: %v", err)), nil
 	}
@@ -623,16 +657,21 @@ func (t *HardwareMCPTools) handleCANReceiveFrame(ctx context.Context, request mc
 }
 
 func (t *HardwareMCPTools) handleCANSetFilter(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	filterID, _ := request.Params.Arguments["filter_id"].(float64)
-	mask, _ := request.Params.Arguments["mask"].(float64)
-
-	params := map[string]interface{}{
-		"id":   uint32(filterID),
-		"mask": uint32(mask),
+	var params struct {
+		DeviceID string  `json:"device_id"`
+		FilterID float64 `json:"filter_id"`
+		Mask     float64 `json:"mask"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, "set_filter", params)
+	sendParams := map[string]interface{}{
+		"id":   uint32(params.FilterID),
+		"mask": uint32(params.Mask),
+	}
+
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "set_filter", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to set CAN filter: %v", err)), nil
 	}
@@ -644,14 +683,19 @@ func (t *HardwareMCPTools) handleCANSetFilter(ctx context.Context, request mcp.C
 // ===== GPIO Handlers =====
 
 func (t *HardwareMCPTools) handleGPIOReadPin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	pin, _ := request.Params.Arguments["pin"].(float64)
-
-	params := map[string]interface{}{
-		"pin": int(pin),
+	var params struct {
+		DeviceID string  `json:"device_id"`
+		Pin      float64 `json:"pin"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, "read_pin", params)
+	sendParams := map[string]interface{}{
+		"pin": int(params.Pin),
+	}
+
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "read_pin", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to read GPIO pin: %v", err)), nil
 	}
@@ -661,16 +705,21 @@ func (t *HardwareMCPTools) handleGPIOReadPin(ctx context.Context, request mcp.Ca
 }
 
 func (t *HardwareMCPTools) handleGPIOWritePin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	pin, _ := request.Params.Arguments["pin"].(float64)
-	value, _ := request.Params.Arguments["value"].(float64)
-
-	params := map[string]interface{}{
-		"pin":   int(pin),
-		"value": int(value),
+	var params struct {
+		DeviceID string  `json:"device_id"`
+		Pin      float64 `json:"pin"`
+		Value    float64 `json:"value"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, "write_pin", params)
+	sendParams := map[string]interface{}{
+		"pin":   int(params.Pin),
+		"value": int(params.Value),
+	}
+
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "write_pin", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to write GPIO pin: %v", err)), nil
 	}
@@ -680,28 +729,34 @@ func (t *HardwareMCPTools) handleGPIOWritePin(ctx context.Context, request mcp.C
 }
 
 func (t *HardwareMCPTools) handleGPIOSetupPin(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	pin, _ := request.Params.Arguments["pin"].(float64)
-	direction, _ := request.Params.Arguments["direction"].(string)
-
-	params := map[string]interface{}{
-		"pin":       int(pin),
-		"direction": direction,
+	var params struct {
+		DeviceID  string `json:"device_id"`
+		Pin       float64 `json:"pin"`
+		Direction string `json:"direction"`
+		ActiveLow *bool  `json:"active_low,omitempty"`
+		Pull      *string `json:"pull,omitempty"`
+		Edge      *string `json:"edge,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	if activeLow, ok := request.Params.Arguments["active_low"].(bool); ok {
-		params["active_low"] = activeLow
+	sendParams := map[string]interface{}{
+		"pin":       int(params.Pin),
+		"direction": params.Direction,
 	}
 
-	if pull, ok := request.Params.Arguments["pull"].(string); ok {
-		params["pull"] = pull
+	if params.ActiveLow != nil {
+		sendParams["active_low"] = *params.ActiveLow
+	}
+	if params.Pull != nil {
+		sendParams["pull"] = *params.Pull
+	}
+	if params.Edge != nil {
+		sendParams["edge"] = *params.Edge
 	}
 
-	if edge, ok := request.Params.Arguments["edge"].(string); ok {
-		params["edge"] = edge
-	}
-
-	result, err := t.agent.SendCommand(ctx, deviceID, "setup_pin", params)
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "setup_pin", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to setup GPIO pin: %v", err)), nil
 	}
@@ -711,18 +766,23 @@ func (t *HardwareMCPTools) handleGPIOSetupPin(ctx context.Context, request mcp.C
 }
 
 func (t *HardwareMCPTools) handleGPIOSetPWM(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	deviceID, _ := request.Params.Arguments["device_id"].(string)
-	pin, _ := request.Params.Arguments["pin"].(float64)
-	period, _ := request.Params.Arguments["period"].(float64)
-	dutyCycle, _ := request.Params.Arguments["duty_cycle"].(float64)
-
-	params := map[string]interface{}{
-		"pin":        int(pin),
-		"period":     int(period),
-		"duty_cycle": int(dutyCycle),
+	var params struct {
+		DeviceID  string  `json:"device_id"`
+		Pin       float64 `json:"pin"`
+		Period    float64 `json:"period"`
+		DutyCycle float64 `json:"duty_cycle"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	result, err := t.agent.SendCommand(ctx, deviceID, "set_pwm", params)
+	sendParams := map[string]interface{}{
+		"pin":        int(params.Pin),
+		"period":     int(params.Period),
+		"duty_cycle": int(params.DutyCycle),
+	}
+
+	result, err := t.agent.SendCommand(ctx, params.DeviceID, "set_pwm", sendParams)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to set GPIO PWM: %v", err)), nil
 	}

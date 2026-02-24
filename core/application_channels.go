@@ -19,6 +19,7 @@ import (
 
 	"AgentFramework/agent"
 	"AgentFramework/pkg/channels"
+	"github.com/cloudwego/eino/components/tool"
 )
 
 // ApplicationWithChannels extends Application with multi-channel support
@@ -38,7 +39,7 @@ type ApplicationWithChannels struct {
 }
 
 // NewApplicationWithChannels creates a new application with multi-channel support
-func NewApplicationWithChannels(ctx context.Context, config *agent.HostConfig, modelFactory agent.ModelFactory, toolRegistry map[string]agent.Tool) (*ApplicationWithChannels, error) {
+func NewApplicationWithChannels(ctx context.Context, config *agent.HostConfig, modelFactory agent.ModelFactory, toolRegistry map[string]tool.BaseTool) (*ApplicationWithChannels, error) {
 	// Create base application
 	baseApp, err := NewApplication(ctx, config, modelFactory, toolRegistry)
 	if err != nil {
@@ -97,7 +98,8 @@ func (a *ApplicationWithChannels) SendChannelMessage(channelID, text string) err
 		return fmt.Errorf("channels not initialized")
 	}
 
-	return a.channels.SendMessage(channelID, text, channels.MessageSendOptions{})
+	_, err := a.channels.SendMessage(channelID, text, channels.MessageSendOptions{})
+	return err
 }
 
 // BroadcastChannelMessage broadcasts a message to all channels of a type

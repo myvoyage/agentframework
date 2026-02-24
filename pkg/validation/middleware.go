@@ -8,24 +8,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 
-package middleware
+package validation
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 	"strings"
-
-	"AgentFramework/pkg/validation"
 )
 
 // ValidationMiddleware provides HTTP middleware for input validation
 type ValidationMiddleware struct {
-	validator *validation.InputValidator
+	validator *InputValidator
 }
 
 // NewValidationMiddleware creates a new validation middleware
-func NewValidationMiddleware(validator *validation.InputValidator) *ValidationMiddleware {
+func NewValidationMiddleware(validator *InputValidator) *ValidationMiddleware {
 	return &ValidationMiddleware{
 		validator: validator,
 	}
@@ -106,28 +104,28 @@ func (vm *ValidationMiddleware) Middleware(next http.Handler) http.Handler {
 
 // StringValidationMiddleware creates middleware for string validation
 func StringValidationMiddleware(maxLength int) func(http.Handler) http.Handler {
-	validator := validation.StringValidator(maxLength)
+	validator := StringValidator(maxLength)
 	vm := NewValidationMiddleware(validator)
 	return vm.Middleware
 }
 
 // RequiredStringValidationMiddleware creates middleware for required string validation
 func RequiredStringValidationMiddleware(maxLength int) func(http.Handler) http.Handler {
-	validator := validation.RequiredStringValidator(maxLength)
+	validator := RequiredStringValidation(maxLength)
 	vm := NewValidationMiddleware(validator)
 	return vm.Middleware
 }
 
 // IDValidationMiddleware creates middleware for ID validation
 func IDValidationMiddleware() func(http.Handler) http.Handler {
-	validator := validation.IDValidator()
+	validator := IDValidator()
 	vm := NewValidationMiddleware(validator)
 	return vm.Middleware
 }
 
 // PathValidationMiddleware creates middleware for path validation
 func PathValidationMiddleware() func(http.Handler) http.Handler {
-	validator := validation.PathValidator()
+	validator := PathValidator()
 	vm := NewValidationMiddleware(validator)
 	return vm.Middleware
 }
@@ -145,7 +143,7 @@ const (
 )
 
 // ValidateAndStore validates input and stores it in the request context
-func ValidateAndStore(ctx context.Context, key ContextKey, validator *validation.InputValidator, value string) (context.Context, error) {
+func ValidateAndStore(ctx context.Context, key ContextKey, validator *InputValidator, value string) (context.Context, error) {
 	sanitized, err := validator.ValidateAndSanitize(value)
 	if err != nil {
 		return ctx, err

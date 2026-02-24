@@ -426,8 +426,8 @@ func (r *Router) UpdateRule(rule *RoutingRule) error {
 
 	// Rebuild priority list
 	r.rulesByPri = make([]*RoutingRule, 0, len(r.rules))
-	for _, r := range r.rules {
-		r.rulesByPri = append(r.rulesByPri, r)
+	for _, existingRule := range r.rules {
+		r.rulesByPri = append(r.rulesByPri, existingRule)
 	}
 
 	// Sort by priority

@@ -15,10 +15,10 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"AgentFramework/agent"
 	"AgentFramework/pkg/channels"
-	"AgentFramework/pkg/channels/adapters"
 )
 
 // ChannelManager extends the Application with multi-channel support
@@ -63,10 +63,7 @@ func NewChannelManager(ctx context.Context, app *Application) (*ChannelManager, 
 	}
 
 	// Create channel manager
-	manager, err := channels.NewManager(&channels.ManagerConfig{
-		EnableMetrics: true,
-		EnableTracing: true,
-	})
+	manager, err := channels.NewManager(&channels.ManagerConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create channel manager: %w", err)
 	}
@@ -87,9 +84,6 @@ func NewChannelManager(ctx context.Context, app *Application) (*ChannelManager, 
 
 	// Set message handler
 	manager.SetMessageHandler(cm.handleChannelMessage)
-
-	// Set event handler
-	manager.(*channels.Manager).SetEventHandler(cm.handleChannelEvent)
 
 	return cm, nil
 }
@@ -338,7 +332,7 @@ func (cm *ChannelManager) handleCommand(msg *channels.Message, session *ChannelS
 	/stats - Show channel statistics
 	/skills - List available skills
 	/version - Show version
-	/echo <text> - Echo back text`
+	/echo <text> - Echo back text`, nil
 	case "/stats":
 		stats, _ := cm.GetStats()
 		response := "📊 Channel Statistics:\n"
@@ -346,10 +340,10 @@ func (cm *ChannelManager) handleCommand(msg *channels.Message, session *ChannelS
 			response += fmt.Sprintf("  %s: %d sent, %d received\n",
 				channelID, stat.MessagesSent, stat.MessagesReceived)
 		}
-		return response
+		return response, nil
 	case "/skills":
 		if cm.skillLibrary == nil {
-			return "Skill system not available"
+			return "Skill system not available", nil
 		}
 
 		skills := cm.skillLibrary.GetAllSkills(cm.ctx)
@@ -357,16 +351,16 @@ func (cm *ChannelManager) handleCommand(msg *channels.Message, session *ChannelS
 		for name := range skills {
 			response += fmt.Sprintf("  - %s\n", name)
 		}
-		return response
+		return response, nil
 	case "/version":
-		return "AgentFramework Multi-Channel Bot v1.0.0"
+		return "AgentFramework Multi-Channel Bot v1.0.0", nil
 	default:
 		// Handle /echo command
 		if len(msg.Text) > 6 && msg.Text[:5] == "/echo" {
-			return msg.Text[6:]
+			return msg.Text[6:], nil
 		}
 
-		return fmt.Sprintf("Unknown command: %s\nType /help for available commands", msg.Text)
+		return fmt.Sprintf("Unknown command: %s\nType /help for available commands", msg.Text), nil
 	}
 }
 
@@ -383,6 +377,11 @@ func (cm *ChannelManager) AddRoutingRule(rule *channels.RoutingRule) error {
 // RemoveRoutingRule removes a routing rule
 func (cm *ChannelManager) RemoveRoutingRule(ruleID string) {
 	cm.manager.RemoveRoutingRule(ruleID)
+}
+
+// GetRoutingRules returns all routing rules
+func (cm *ChannelManager) GetRoutingRules() []*channels.RoutingRule {
+	return cm.manager.GetRouter().ListRules()
 }
 
 // GetSessions returns all active sessions
@@ -430,13 +429,12 @@ func (cm *ChannelManager) SendMessageToUser(userID string, text string) error {
 	// Find all sessions for this user
 	sentCount := 0
 	cm.sessionsMutex.RLock()
-	for key, sess := range cm.sessions {
+	for _, sess := range cm.sessions {
 		if sess.UserID == userID {
 			msg := &channels.Message{
 				Type: channels.MessageTypeText,
 				Text: text,
 			}
-
 			_, err := cm.manager.SendMessage(cm.ctx, sess.ChannelID, msg, channels.MessageSendOptions{})
 			if err == nil {
 				sentCount++

@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"AgentFramework/pkg/channels"
@@ -278,8 +279,8 @@ func (a *DingTalkAdapter) SendMessage(ctx context.Context, msg *channels.Message
 			sendURL, timestamp, url.QueryEscape(signature))
 	}
 
-	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", sendURL, nil)
+	// Create request with body
+	req, err := http.NewRequestWithContext(ctx, "POST", sendURL, strings.NewReader(string(body)))
 	if err != nil {
 		span.RecordError(err)
 		return "", err

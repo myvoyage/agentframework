@@ -6,15 +6,9 @@ package pool
 
 import (
 	"sync"
-	"time"
 )
 
 // MessagePool manages a pool of Message objects to reduce memory allocation
-type MessagePool struct {
-	pool sync.Pool
-	metrics *PoolMetrics
-}
-
 // PoolMetrics tracks pool usage metrics
 type PoolMetrics struct {
 	Hits   int64
@@ -23,65 +17,6 @@ type PoolMetrics struct {
 	Gets   int64
 }
 
-// NewMessagePool creates a new message pool
-func NewMessagePool() *MessagePool {
-	return &MessagePool{
-		pool: sync.Pool{
-			New: func() interface{} {
-				return &Message{}
-			},
-		},
-		metrics: &PoolMetrics{},
-	}
-}
-
-// Acquire gets a Message from the pool
-func (p *MessagePool) Acquire() *Message {
-	p.metrics.Gets++
-	msg := p.pool.Get().(*Message)
-	if msg.CreatedAt.IsZero() {
-		p.metrics.Misses++
-	} else {
-		p.metrics.Hits++
-	}
-	return msg
-}
-
-// Release returns a Message to the pool
-func (p *MessagePool) Release(msg *Message) {
-	if msg == nil {
-		return
-	}
-	p.Reset(msg)
-	p.pool.Put(msg)
-	p.metrics.Puts++
-}
-
-// Reset resets a Message object for reuse
-func (p *MessagePool) Reset(msg *Message) {
-	msg.ID = ""
-	msg.Role = ""
-	msg.Content = ""
-	msg.Timestamp = time.Time{}
-	msg.Metadata = nil
-}
-
-// Metrics returns the pool metrics
-func (p *MessagePool) Metrics() *PoolMetrics {
-	return p.metrics
-}
-
-// Message represents a pooled message object
-type Message struct {
-	ID        string                 `json:"id"`
-	Role      string                 `json:"role"`
-	Content   string                 `json:"content"`
-	Timestamp time.Time              `json:"timestamp"`
-	Metadata  map[string]interface{}  `json:"metadata,omitempty"`
-	CreatedAt time.Time              `json:"-"` // Track when allocated
-}
-
-// ChunkPool manages a pool of byte chunks for efficient memory use
 type ChunkPool struct {
 	pool    sync.Pool
 	chunkSize int

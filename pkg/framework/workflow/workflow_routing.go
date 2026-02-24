@@ -42,11 +42,11 @@ import (
 type RoutingWorkflow struct {
 	name       string
 	model      ChatModel
-	candidates map[string]Workflow
+	candidates map[string]WorkflowInterface
 }
 
 // NewRoutingWorkflow creates a new RoutingWorkflow instance.
-func NewRoutingWorkflow(name string, m ChatModel, candidates map[string]Workflow) *RoutingWorkflow {
+func NewRoutingWorkflow(name string, m ChatModel, candidates map[string]WorkflowInterface) *RoutingWorkflow {
 	return &RoutingWorkflow{
 		name:       name,
 		model:      m,

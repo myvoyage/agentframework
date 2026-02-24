@@ -72,8 +72,8 @@ type ChatAgent struct {
 	model         ChatModel
 	thread        *Thread
 	tools         map[string]tool.InvokableTool
-	memoryManager *MemoryManager
-	stateMachine  *StateMachine
+	memoryManager MemoryManager
+	stateMachine  StateMachine
 }
 
 func NewChatAgent(ctx context.Context, cfg ChatAgentConfig) (*ChatAgent, error) {
@@ -150,7 +150,7 @@ func (a *ChatAgent) ClearHistory() {
 
 func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
 	// 转换到 RUNNING 状态
-	if err := a.stateMachine.Transition(ctx, StateRunning, "Starting Run execution", map[string]any{
+	if err := a.stateMachine.Transition(ctx, string(StateRunning), "Starting Run execution", map[string]any{
 		"input_length": len(input),
 		"tool_count":   len(a.tools),
 	}); err != nil {
@@ -159,9 +159,9 @@ func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option)
 
 	// 确保在函数结束时处理状态转换
 	defer func() {
-		if a.stateMachine.Current() == StateRunning {
+		if string(a.stateMachine.Current()) == string(StateRunning) {
 			// 如果仍然在运行状态，转换为 FINISHED
-			_ = a.stateMachine.Transition(context.Background(), StateFinished, "Run execution completed", nil)
+			_ = a.stateMachine.Transition(context.Background(), string(string(StateFinished)), "Run execution completed", nil)
 		}
 	}()
 
@@ -177,7 +177,7 @@ func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option)
 
 	resp, err := a.model.Generate(ctx, messages, opts...)
 	if err != nil {
-		_ = a.stateMachine.Transition(ctx, StateError, "Model generation failed", map[string]any{
+		_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation failed", map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
@@ -186,7 +186,7 @@ func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option)
 	if len(resp.ToolCalls) > 0 && len(a.tools) > 0 {
 		toolMsgs, err := a.runTools(ctx, resp)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Tool execution failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Tool execution failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -196,7 +196,7 @@ func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option)
 
 		resp, err = a.model.Generate(ctx, messages, opts...)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Model generation after tools failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation after tools failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -212,7 +212,7 @@ func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option)
 	a.thread.Messages = a.memoryManager.LimitHistory(a.thread.Messages)
 
 	// 转换到 FINISHED 状态
-	_ = a.stateMachine.Transition(ctx, StateFinished, "Run execution completed successfully", map[string]any{
+	_ = a.stateMachine.Transition(ctx, string(StateFinished), "Run execution completed successfully", map[string]any{
 		"response_length": len(resp.Content),
 		"tool_calls_count": len(resp.ToolCalls),
 	})

@@ -7,9 +7,9 @@
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Package examples demonstrates how to integrate the multi-channel system
+// Package channels_integration demonstrates how to integrate the multi-channel system
 // with the AgentFramework
-package examples
+package main
 
 import (
 	"context"
@@ -20,9 +20,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"AgentFramework/agent"
 	"AgentFramework/pkg/channels"
-	"AgentFramework/pkg/channels/adapters"
 )
 
 // ChannelBridge bridges multi-channel messages to the Agent system
@@ -42,9 +43,7 @@ type ChannelBridge struct {
 // NewChannelBridge creates a new channel bridge
 func NewChannelBridge(agentHost *agent.Host) (*ChannelBridge, error) {
 	// Create channel manager
-	manager, err := channels.NewManager(&channels.ManagerConfig{
-		EnableMetrics: true,
-	})
+	manager, err := channels.NewManager(&channels.ManagerConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create channel manager: %w", err)
 	}
@@ -135,7 +134,7 @@ func (b *ChannelBridge) registerChannel(name string, config channels.ChannelConf
 // SendMessage sends a message through a specific channel
 func (b *ChannelBridge) SendMessage(channelID string, text string, opts channels.MessageSendOptions) (string, error) {
 	msg := &channels.Message{
-		ID:          channels.GenerateMessageID(),
+		ID:          uuid.New().String(),
 		Type:        channels.MessageTypeText,
 		Direction:   channels.MessageDirectionOutgoing,
 		Text:        text,
@@ -148,7 +147,7 @@ func (b *ChannelBridge) SendMessage(channelID string, text string, opts channels
 // Broadcast sends a message to all channels of a specific type
 func (b *ChannelBridge) Broadcast(channelType channels.ChannelType, text string) (map[string]string, error) {
 	msg := &channels.Message{
-		ID:          channels.GenerateMessageID(),
+		ID:          uuid.New().String(),
 		Type:        channels.MessageTypeText,
 		Direction:   channels.MessageDirectionOutgoing,
 		Text:        text,

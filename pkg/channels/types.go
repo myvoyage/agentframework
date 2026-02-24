@@ -11,6 +11,7 @@
 package channels
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -214,6 +215,32 @@ type ChannelConfig struct {
 
 	// Platform-specific configuration
 	PlatformConfig map[string]interface{} `json:"platform_config,omitempty"`
+}
+
+// Validate validates the channel configuration
+func (c *ChannelConfig) Validate() error {
+	if c.Type == "" {
+		return fmt.Errorf("channel type is required")
+	}
+	if c.Name == "" {
+		return fmt.Errorf("channel name is required")
+	}
+	// Type-specific validation
+	switch c.Type {
+	case ChannelTypeTelegram, ChannelTypeDiscord:
+		if c.Token == "" {
+			return fmt.Errorf("token is required for %s", c.Type)
+		}
+	case ChannelTypeSlack:
+		if c.Token == "" || c.AppToken == "" {
+			return fmt.Errorf("token and app_token are required for Slack")
+		}
+	case ChannelTypeFeishu, ChannelTypeWeWork:
+		if c.AppID == "" || c.AppSecret == "" {
+			return fmt.Errorf("app_id and app_secret are required for %s", c.Type)
+		}
+	}
+	return nil
 }
 
 // ChannelStats represents statistics for a channel

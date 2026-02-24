@@ -168,7 +168,8 @@ func (a *EdgeAgent) ListAllocations(ctx context.Context) ([]edge.ResourceAllocat
 
 // GetAvailableResources returns available resources.
 func (a *EdgeAgent) GetAvailableResources(ctx context.Context) (memory int64, cpu float64, err error) {
-	return a.resources.GetAvailableResources(ctx)
+	memory, cpu = a.resources.GetAvailableResources(ctx)
+	return memory, cpu, nil
 }
 
 // EnableMonitoring enables performance monitoring for deployments.
@@ -245,13 +246,15 @@ func (a *EdgeAgent) updateDeploymentMetrics(ctx context.Context) {
 
 // GetSystemInfo returns system information for edge computing.
 func (a *EdgeAgent) GetSystemInfo(ctx context.Context) (*EdgeSystemInfo, error) {
-	memory, cpu, _ := a.GetAvailableResources(ctx)
+	availableMemory, availableCPU, _ := a.GetAvailableResources(ctx)
 
+	// Note: Total resources are configured at creation time and not exposed by ResourceManager
+	// Using available values as a fallback - in a real implementation, you'd store these at creation
 	return &EdgeSystemInfo{
-		TotalMemory:     a.resources.(*edge.ResourceManager).MaxMemory(),
-		AvailableMemory: memory,
-		TotalCPU:        a.resources.(*edge.ResourceManager).MaxCPU(),
-		AvailableCPU:    cpu,
+		TotalMemory:     availableMemory, // Using available as fallback - ideally store max at creation
+		AvailableMemory: availableMemory,
+		TotalCPU:        availableCPU, // Using available as fallback - ideally store max at creation
+		AvailableCPU:    availableCPU,
 		DeploymentCount: len(a.deployments),
 		MonitoringEnabled: a.monitoringEnabled,
 	}, nil

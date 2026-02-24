@@ -31,6 +31,8 @@ const (
 	ModeDesktop RunMode = iota
 	// ModeCLI runs the command-line interface
 	ModeCLI
+	// ModeTUI runs the terminal user interface
+	ModeTUI
 )
 
 func main() {
@@ -42,6 +44,12 @@ func main() {
 		// Run CLI mode
 		if err := runCLIMode(); err != nil {
 			fmt.Fprintf(os.Stderr, "CLI error: %v\n", err)
+			os.Exit(1)
+		}
+	case ModeTUI:
+		// Run TUI mode
+		if err := runTUIMode(); err != nil {
+			fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 			os.Exit(1)
 		}
 	case ModeDesktop:
@@ -56,7 +64,7 @@ func main() {
 	}
 }
 
-// detectRunMode determines whether to run in CLI or desktop mode
+// detectRunMode determines whether to run in CLI, TUI, or desktop mode
 func detectRunMode() RunMode {
 	// Check for CLI-specific flags or subcommands
 	args := os.Args[1:]
@@ -64,6 +72,13 @@ func detectRunMode() RunMode {
 	// No arguments - default to desktop mode
 	if len(args) == 0 {
 		return ModeDesktop
+	}
+
+	// Check for TUI flag
+	for _, arg := range args {
+		if arg == "--tui" || arg == "-t" {
+			return ModeTUI
+		}
 	}
 
 	// Check for CLI flags or subcommands
@@ -91,10 +106,17 @@ func runCLIMode() error {
 	return cli.Execute()
 }
 
+// runTUIMode runs the application in TUI (Terminal UI) mode
+func runTUIMode() error {
+	// Import and run TUI
+	// Note: We use a build tag approach to avoid circular dependencies
+	return runTUI()
+}
+
 // runDesktopMode runs the application in desktop mode
 func runDesktopMode() error {
 	// Create application instance
-	app := NewApp()
+	app := NewAppWithConfig(true, 8080)
 
 	// Create application with options
 	err := wails.Run(&options.App{
@@ -105,7 +127,8 @@ func runDesktopMode() error {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:      app.startup,
+		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},

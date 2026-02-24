@@ -49,11 +49,11 @@ type planStep struct {
 type PlannerWorkflow struct {
 	name       string
 	model      ChatModel
-	candidates map[string]Workflow
+	candidates map[string]WorkflowInterface
 }
 
 // NewPlannerWorkflow creates a new PlannerWorkflow instance.
-func NewPlannerWorkflow(name string, m ChatModel, candidates map[string]Workflow) *PlannerWorkflow {
+func NewPlannerWorkflow(name string, m ChatModel, candidates map[string]WorkflowInterface) *PlannerWorkflow {
 	return &PlannerWorkflow{
 		name:       name,
 		model:      m,

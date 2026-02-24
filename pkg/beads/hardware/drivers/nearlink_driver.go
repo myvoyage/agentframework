@@ -17,7 +17,7 @@ import (
 
 	"AgentFramework/pkg/beads/hardware"
 	"AgentFramework/pkg/iot"
-	iotadapters "AgentFramework/pkg/iot/adapters"
+	iotadapters "AgentFramework/pkg/iot"
 )
 
 // NearLinkDriver implements HardwareController for NearLink devices.

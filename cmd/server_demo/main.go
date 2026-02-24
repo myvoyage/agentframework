@@ -31,7 +31,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -39,9 +38,7 @@ import (
 	"AgentFramework/agent"
 	"AgentFramework/agent/tools"
 
-	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
-	"github.com/cloudwego/eino/schema"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel"
@@ -240,33 +237,35 @@ func main() {
 	host.AddWorkflow(cyclicWf)
 	log.Printf("Registered Cyclic Workflow: %s", cyclicWf.Name())
 
+	// TODO: Semantic Router not implemented yet
 	// 2.4 Construct and Register Semantic Router
-	embedder := router.NewOllamaEmbedding("http://localhost:11434", "nomic-embed-text")
-	semRouter := router.NewSemanticRouter(embedder)
-	
-	analystAgent, _ := host.Agent("analyst")
-	host.AddWorkflow(agent.NewSequentialWorkflow("analyst_workflow", analystAgent))
-	
-	researcherAgent, _ := host.Agent("researcher")
-	host.AddWorkflow(agent.NewSequentialWorkflow("researcher_workflow", researcherAgent))
+	// embedder := router.NewOllamaEmbedding("http://localhost:11434", "nomic-embed-text")
+	// semRouter := router.NewSemanticRouter(embedder)
+
+	// analystAgent, _ := host.Agent("analyst")
+	// host.AddWorkflow(agent.NewSequentialWorkflow("analyst_workflow", analystAgent))
+	//
+	// researcherAgent, _ := host.Agent("researcher")
+	// host.AddWorkflow(agent.NewSequentialWorkflow("researcher_workflow", researcherAgent))
 
 	// Add routes. Note: AddRoute makes a network call to embed, so it might fail if Ollama is not up.
 	// We wrap in a simple check or ignore error for demo resilience.
-	if err := semRouter.AddRoute(ctx, "write a blog post about AI", "write_and_review"); err != nil {
-		log.Printf("Warning: Failed to add route: %v", err)
-	}
-	_ = semRouter.AddRoute(ctx, "research quantum computing", "researcher_workflow")
-	_ = semRouter.AddRoute(ctx, "analyze data and plot chart", "analyst_workflow")
-	_ = semRouter.AddRoute(ctx, "find information on the web", "researcher_workflow")
-	_ = semRouter.AddRoute(ctx, "critique and refine text", "critique_refine_loop")
+	// if err := semRouter.AddRoute(ctx, "write a blog post about AI", "write_and_review"); err != nil {
+	// 	log.Printf("Warning: Failed to add route: %v", err)
+	// }
+	// _ = semRouter.AddRoute(ctx, "research quantum computing", "researcher_workflow")
+	// _ = semRouter.AddRoute(ctx, "analyze data and plot chart", "analyst_workflow")
+	// _ = semRouter.AddRoute(ctx, "find information on the web", "researcher_workflow")
+	// _ = semRouter.AddRoute(ctx, "critique and refine text", "critique_refine_loop")
 
-	semRoutingWf := &SemanticRoutingWorkflow{
-		NameStr: "semantic_router",
-		Router:  semRouter,
-		Host:    host,
-	}
-	host.AddWorkflow(semRoutingWf)
-	log.Printf("Registered Semantic Router Workflow: %s", semRoutingWf.Name())
+	// semRoutingWf := &SemanticRoutingWorkflow{
+	// 	NameStr: "semantic_router",
+	// 	Router:  semRouter,
+	// 	Host:    host,
+	// }
+	// host.AddWorkflow(semRoutingWf)
+	// log.Printf("Registered Semantic Router Workflow: %s", semRoutingWf.Name())
+	_ = ctx // suppress unused warning
 
 	// 3. Start Server
 	server := agent.NewAgentRuntimeServer(host, ":8081", "")
@@ -275,6 +274,8 @@ func main() {
 	}
 }
 
+// TODO: Semantic routing workflow requires router package implementation
+/*
 type SemanticRoutingWorkflow struct {
 	NameStr string
 	Router  *router.SemanticRouter
@@ -290,7 +291,7 @@ func (w *SemanticRoutingWorkflow) Run(ctx context.Context, input string, opts ..
 	if err != nil {
 		return nil, err
 	}
-	
+
 	log.Printf("[SemanticRouter] Routing input %q to %q", input, targetName)
 
 	wf, ok := w.Host.Workflow(targetName)
@@ -301,10 +302,13 @@ func (w *SemanticRoutingWorkflow) Run(ctx context.Context, input string, opts ..
 		}
 		return nil, fmt.Errorf("target %q not found", targetName)
 	}
-	
+
 	return wf.Run(ctx, input, opts...)
 }
-
+*/
+// TODO: Resume method for semantic routing workflow (requires router implementation)
+/*
 func (w *SemanticRoutingWorkflow) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
 	return nil, fmt.Errorf("resume not supported for semantic routing workflow")
 }
+*/

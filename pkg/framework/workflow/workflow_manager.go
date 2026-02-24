@@ -322,25 +322,31 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, id string, input
 		return "", fmt.Errorf("failed to create workflow: %w", err)
 	}
 
-	// Create execution result
+	// Create execution
 	executionID := uuid.New().String()
-	result := &WorkflowExecutionResult{
-		WorkflowID:  id,
-		ExecutionID: executionID,
-		Status:      WorkflowStatusRunning,
-		Input:       input,
-		StartTime:   time.Now(),
-		NodeResults: make([]NodeExecutionResult, 0),
+	startTime := time.Now()
+	execution := &WorkflowExecution{
+		ID:         executionID,
+		WorkflowID: id,
+		Status:     StatusRunning,
+		Input:      map[string]interface{}{"input": input},
+		Output:     make(map[string]interface{}),
+		StartedAt:  startTime.Unix(),
+		NodeStates: make(map[string]*NodeState),
+		Metadata:   make(map[string]interface{}),
 	}
 
 	// Save initial execution state
-	if err := executionStore.SaveExecutionResult(ctx, result); err != nil {
-		return "", fmt.Errorf("failed to save execution result: %w", err)
+	if err := executionStore.SaveExecution(ctx, execution); err != nil {
+		return "", fmt.Errorf("failed to save execution: %w", err)
 	}
 
 	// Create callback handler for tracking node execution
 	callbackHandler := &executionCallbackHandler{
-		executionResult: result,
+		execution:    execution,
+		executionID:  executionID,
+		nodeStates:   make(map[string]*NodeState),
+		startTime:    startTime,
 	}
 
 	// Inject callback handler into context
@@ -349,22 +355,28 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, id string, input
 	// Execute workflow
 	resp, err := workflow.Run(ctx, input)
 	if err != nil {
-		// Update execution result with failure status
-		result.Status = WorkflowStatusFailed
-		result.Error = err.Error()
-		result.EndTime = time.Now()
-		if saveErr := executionStore.SaveExecutionResult(ctx, result); err != nil {
-			return "", fmt.Errorf("failed to save execution result: %w", saveErr)
+		// Update execution with failure status
+		execution.Status = StatusFailed
+		execution.Error = err.Error()
+		execution.CompletedAt = time.Now().Unix()
+		if saveErr := executionStore.SaveExecution(ctx, execution); saveErr != nil {
+			return "", fmt.Errorf("failed to save execution: %w", saveErr)
 		}
 		return "", fmt.Errorf("workflow execution failed: %w", err)
 	}
 
-	// Update execution result with success status
-	result.Status = WorkflowStatusCompleted
-	result.Output = resp.Content
-	result.EndTime = time.Now()
-	if err := executionStore.SaveExecutionResult(ctx, result); err != nil {
-		return "", fmt.Errorf("failed to save execution result: %w", err)
+	// Update execution with success status
+	execution.Status = StatusCompleted
+	execution.Output = map[string]interface{}{"output": resp.Content}
+	execution.CompletedAt = time.Now().Unix()
+
+	// Update node states from callback handler
+	for nodeID, nodeState := range callbackHandler.nodeStates {
+		execution.NodeStates[nodeID] = nodeState
+	}
+
+	if err := executionStore.SaveExecution(ctx, execution); err != nil {
+		return "", fmt.Errorf("failed to save execution: %w", err)
 	}
 
 	return resp.Content, nil
@@ -372,7 +384,11 @@ func (wm *WorkflowManager) ExecuteWorkflow(ctx context.Context, id string, input
 
 // executionCallbackHandler implements WorkflowCallbackHandler to track node execution
 type executionCallbackHandler struct {
-	executionResult *WorkflowExecutionResult
+	execution   *WorkflowExecution
+	executionID string
+	nodeStates  map[string]*NodeState
+	startTime   time.Time
+	mu          sync.Mutex
 }
 
 // OnWorkflowStart is called when a workflow starts executing
@@ -387,40 +403,43 @@ func (h *executionCallbackHandler) OnWorkflowEnd(ctx context.Context, workflowID
 
 // OnNodeStart is called when a node starts executing
 func (h *executionCallbackHandler) OnNodeStart(ctx context.Context, nodeID string, input string) {
-	// Create node execution result
-	nodeResult := NodeExecutionResult{
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Create node state
+	nodeState := &NodeState{
 		NodeID:     nodeID,
 		Status:     NodeStatusRunning,
-		Input:      input,
-		StartTime:  time.Now(),
-		RetryCount: 0,
+		Input:      map[string]interface{}{"input": input},
+		Output:     make(map[string]interface{}),
+		StartedAt:  time.Now().Unix(),
 	}
 
-	// Add to execution result
-	h.executionResult.NodeResults = append(h.executionResult.NodeResults, nodeResult)
+	// Add to node states
+	h.nodeStates[nodeID] = nodeState
 }
 
 // OnNodeEnd is called when a node finishes executing
 func (h *executionCallbackHandler) OnNodeEnd(ctx context.Context, nodeID string, output string) {
-	// Find the node result and update it
-	for i, nodeResult := range h.executionResult.NodeResults {
-		if nodeResult.NodeID == nodeID && nodeResult.Status == NodeStatusRunning {
-			h.executionResult.NodeResults[i].Status = NodeStatusCompleted
-			h.executionResult.NodeResults[i].Output = output
-			h.executionResult.NodeResults[i].EndTime = time.Now()
-			break
-		}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Find the node state and update it
+	if nodeState, exists := h.nodeStates[nodeID]; exists {
+		nodeState.Status = NodeStatusCompleted
+		nodeState.Output = map[string]interface{}{"output": output}
+		nodeState.CompletedAt = time.Now().Unix()
 	}
 }
 
 // GetWorkflowExecutionResult gets the execution result of a workflow
-func (wm *WorkflowManager) GetWorkflowExecutionResult(ctx context.Context, executionID string) (*WorkflowExecutionResult, error) {
-	return wm.executionStore.GetExecutionResult(ctx, executionID)
+func (wm *WorkflowManager) GetWorkflowExecutionResult(ctx context.Context, executionID string) (*WorkflowExecution, error) {
+	return wm.executionStore.GetExecution(ctx, executionID)
 }
 
 // GetWorkflowExecutionResults gets all execution results for a workflow
-func (wm *WorkflowManager) GetWorkflowExecutionResults(ctx context.Context, workflowID string) ([]*WorkflowExecutionResult, error) {
-	return wm.executionStore.GetExecutionResultsByWorkflowID(ctx, workflowID)
+func (wm *WorkflowManager) GetWorkflowExecutionResults(ctx context.Context, workflowID string) ([]*WorkflowExecution, error) {
+	return wm.executionStore.ListExecutions(ctx, workflowID)
 }
 
 // getCurrentTime returns the current time in ISO format

@@ -44,10 +44,10 @@ type DataAnalysisAgent struct {
 	name              string
 	model             ChatModel
 	pythonRunner      PythonRunner
-	chartGenerator    *ChartGenerator
+	chartGenerator    ChartGenerator
 	tools             map[string]tool.InvokableTool
-	stateMachine      *StateMachine
-	memoryManager     *MemoryManager
+	stateMachine      StateMachine
+	memoryManager     MemoryManager
 	thread            *Thread
 }
 
@@ -102,16 +102,15 @@ func NewDataAnalysisAgent(ctx context.Context, cfg DataAnalysisConfig) (*DataAna
 		}
 	}
 
-	// 创建图表生成器
-	chartGen := &ChartGenerator{
-		runner: cfg.PythonRunner,
-	}
-
 	// 创建状态机
 	stateMachine := NewStateMachineWithDefaults()
 
 	// 创建内存管理器
 	memoryManager := NewMemoryManager(cfg.MemoryOpts)
+
+	// Note: chartGenerator would need to be provided via config or use a default implementation
+	var chartGen ChartGenerator
+	// For now, use nil and handle appropriately in usage
 
 	return &DataAnalysisAgent{
 		name:           cfg.Name,
@@ -133,13 +132,13 @@ func (a *DataAnalysisAgent) Name() string {
 // Run 执行数据分析
 func (a *DataAnalysisAgent) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
 	// 转换到运行状态
-	if err := a.stateMachine.Transition(ctx, StateRunning, "Starting data analysis", nil); err != nil {
+	if err := a.stateMachine.Transition(ctx, string(StateRunning), "Starting data analysis", nil); err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		if a.stateMachine.Current() == StateRunning {
-			_ = a.stateMachine.Transition(context.Background(), StateFinished, "Analysis completed", nil)
+		if string(a.stateMachine.Current()) == string(StateRunning) {
+			_ = a.stateMachine.Transition(context.Background(), string(StateFinished), "Analysis completed", nil)
 		}
 	}()
 
@@ -153,7 +152,7 @@ func (a *DataAnalysisAgent) Run(ctx context.Context, input string, opts ...model
 
 	resp, err := a.model.Generate(ctx, messages, opts...)
 	if err != nil {
-		_ = a.stateMachine.Transition(ctx, StateError, "Model generation failed", map[string]any{
+		_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation failed", map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
@@ -163,7 +162,7 @@ func (a *DataAnalysisAgent) Run(ctx context.Context, input string, opts ...model
 	if len(resp.ToolCalls) > 0 && len(a.tools) > 0 {
 		toolMsgs, err := a.runTools(ctx, resp)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Tool execution failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Tool execution failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -173,7 +172,7 @@ func (a *DataAnalysisAgent) Run(ctx context.Context, input string, opts ...model
 
 		resp, err = a.model.Generate(ctx, messages, opts...)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Model generation after tools failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation after tools failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -184,7 +183,7 @@ func (a *DataAnalysisAgent) Run(ctx context.Context, input string, opts ...model
 	a.thread.Messages = append(a.thread.Messages, userMsg, resp)
 	a.thread.Messages = a.memoryManager.LimitHistory(a.thread.Messages)
 
-	_ = a.stateMachine.Transition(ctx, StateFinished, "Analysis completed successfully", map[string]any{
+	_ = a.stateMachine.Transition(ctx, string(StateFinished), "Analysis completed successfully", map[string]any{
 		"response_length": len(resp.Content),
 	})
 
@@ -241,7 +240,32 @@ func (a *DataAnalysisAgent) Analyze(ctx context.Context, data interface{}, analy
 
 // GenerateChart 生成图表
 func (a *DataAnalysisAgent) GenerateChart(ctx context.Context, req ChartRequest) ([]byte, error) {
-	return a.chartGenerator.Generate(ctx, req)
+	if a.chartGenerator == nil {
+		return nil, fmt.Errorf("chart generator not initialized")
+	}
+
+	switch req.Type {
+	case "bar":
+		dataMap, ok := req.Data.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid data format for bar chart")
+		}
+		return a.chartGenerator.GenerateBarChart(dataMap)
+	case "line":
+		dataSlice, ok := req.Data.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid data format for line chart")
+		}
+		return a.chartGenerator.GenerateLineChart(dataSlice)
+	case "pie":
+		dataMap, ok := req.Data.(map[string]float64)
+		if !ok {
+			return nil, fmt.Errorf("invalid data format for pie chart")
+		}
+		return a.chartGenerator.GeneratePieChart(dataMap)
+	default:
+		return a.chartGenerator.GenerateChart(req.Data, req.Type)
+	}
 }
 
 // StatisticalSummary 统计摘要

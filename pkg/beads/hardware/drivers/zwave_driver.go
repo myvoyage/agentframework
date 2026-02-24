@@ -17,7 +17,7 @@ import (
 
 	"AgentFramework/pkg/beads/hardware"
 	"AgentFramework/pkg/iot"
-	iotadapters "AgentFramework/pkg/iot/adapters"
+	iotadapters "AgentFramework/pkg/iot"
 )
 
 // ZWaveDriver implements HardwareController for Z-Wave devices.
@@ -66,7 +66,7 @@ func (d *ZWaveDriver) SendCommand(ctx context.Context, cmd string, params map[st
 
 	case "start_inclusion":
 		// Start inclusion mode
-		enable, ok := params["enable"].(bool)
+		enable := params["enable"].(bool)
 		_ = enable // Will be used in actual implementation
 		if d.adapter == nil {
 			return nil, fmt.Errorf("adapter not set")

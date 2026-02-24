@@ -31,12 +31,11 @@ package agent
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/schema"
-
-	"AgentFramework/agent/errors"
 )
 
 // WorkerRole defines the role of a WorkerAgent
@@ -74,7 +73,7 @@ type BaseWorkerAgent struct {
 	tools         map[string]tool.InvokableTool
 	instructions  string
 	thread        *Thread
-	memoryManager *MemoryManager
+	memoryManager MemoryManager
 }
 
 // NewBaseWorkerAgent creates a new BaseWorkerAgent instance
@@ -91,11 +90,16 @@ func NewBaseWorkerAgent(name string, role WorkerRole, capabilities []string, mod
 	}
 
 	// Create memory manager with provided or default options
-	var memoryManager *MemoryManager
+	var memoryManager MemoryManager
 	if len(opts) > 0 {
 		memoryManager = NewMemoryManager(opts[0])
 	} else {
-		memoryManager = DefaultMemoryManager()
+		// Use default options if none provided
+		memoryManager = NewMemoryManager(MemoryOptions{
+			MaxMessages:    100,
+			MaxTokens:      4000,
+			EnableTrimming: true,
+		})
 	}
 
 	return &BaseWorkerAgent{
@@ -465,7 +469,7 @@ func (w *SimpleWorkforce) ListWorkers() []WorkerAgent {
 func (w *SimpleWorkforce) AssignTask(ctx context.Context, workerName string, task string, opts ...model.Option) (*schema.Message, error) {
 	worker, ok := w.workers[workerName]
 	if !ok {
-		return nil, errors.New(errors.ErrCodeNotFound, "worker not found")
+		return nil, fmt.Errorf("worker not found")
 	}
 
 	return worker.Run(ctx, task, opts...)
@@ -475,7 +479,7 @@ func (w *SimpleWorkforce) AssignTask(ctx context.Context, workerName string, tas
 func (w *SimpleWorkforce) AssignTaskByRole(ctx context.Context, role WorkerRole, task string, opts ...model.Option) (*schema.Message, error) {
 	workers := w.roleMap[role]
 	if len(workers) == 0 {
-		return nil, errors.New(errors.ErrCodeNotFound, "no workers found with specified role")
+		return nil, fmt.Errorf("no workers found with specified role")
 	}
 
 	// Use the first worker for now
@@ -486,7 +490,7 @@ func (w *SimpleWorkforce) AssignTaskByRole(ctx context.Context, role WorkerRole,
 func (w *SimpleWorkforce) AssignTaskByCapability(ctx context.Context, capability string, task string, opts ...model.Option) (*schema.Message, error) {
 	workers := w.capMap[capability]
 	if len(workers) == 0 {
-		return nil, errors.New(errors.ErrCodeNotFound, "no workers found with specified capability")
+		return nil, fmt.Errorf("no workers found with specified capability")
 	}
 
 	// Use the first worker for now

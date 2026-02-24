@@ -51,7 +51,7 @@ type EventHandler func(ctx context.Context, event Event)
 func NewRealTimeAgent(bufferSize, maxWorkers int, metricsEnabled bool) *RealTimeAgent {
 	return &RealTimeAgent{
 		pipelines:      make(map[string]*stream.DataPipeline),
-		realTimeCtx:    context.NewRealTimeContext(10000, 5*time.Minute),
+		realTimeCtx:    beadscontext.NewRealTimeContext(10000, 5*time.Minute),
 		subscribers:    make(map[string][]EventHandler),
 		eventBus:       make(chan Event, bufferSize),
 		bufferSize:     bufferSize,
@@ -303,17 +303,17 @@ func (a *RealTimeAgent) GetAllPipelineMetrics(ctx context.Context) (map[string]*
 }
 
 // GetRealTimeStats returns statistics about the real-time context.
-func (a *RealTimeAgent) GetRealTimeStats(ctx context.Context) (*context.RealTimeStats, error) {
+func (a *RealTimeAgent) GetRealTimeStats(ctx context.Context) (*beadscontext.RealTimeStats, error) {
 	return a.realTimeCtx.GetStats(ctx), nil
 }
 
 // QueryRealTimeData queries the real-time context.
-func (a *RealTimeAgent) QueryRealTimeData(ctx context.Context, query *context.Query) ([]*context.QueryResult, error) {
+func (a *RealTimeAgent) QueryRealTimeData(ctx context.Context, query *beadscontext.Query) ([]*beadscontext.QueryResult, error) {
 	return a.realTimeCtx.Query(ctx, *query)
 }
 
 // SearchRealTimeData searches the real-time context.
-func (a *RealTimeAgent) SearchRealTimeData(ctx context.Context, searchTerm string, limit int) ([]*context.SearchResult, error) {
+func (a *RealTimeAgent) SearchRealTimeData(ctx context.Context, searchTerm string, limit int) ([]*beadscontext.SearchResult, error) {
 	return a.realTimeCtx.Search(ctx, searchTerm, limit)
 }
 
@@ -366,7 +366,7 @@ func (a *RealTimeAgent) Close(ctx context.Context) error {
 	}
 
 	// Stop all pipelines
-	for pipelineID, pipeline := range a.pipelines {
+	for _, pipeline := range a.pipelines {
 		pipeline.Stop()
 	}
 

@@ -359,8 +359,8 @@ func minTTL(a, b time.Duration) time.Duration {
 	return b
 }
 
-// LRUCache provides an LRU (Least Recently Used) cache
-type LRUCache struct {
+// MultiLevelLRUCache provides an LRU (Least Recently Used) cache
+type MultiLevelLRUCache struct {
 	capacity int
 	items    map[string]*lruItem
 	head     *lruItem
@@ -374,9 +374,9 @@ type lruItem struct {
 	prev, next *lruItem
 }
 
-// NewLRUCache creates a new LRU cache
-func NewLRUCache(capacity int) *LRUCache {
-	cache := &LRUCache{
+// NewMultiLevelLRUCache creates a new LRU cache
+func NewMultiLevelLRUCache(capacity int) *MultiLevelLRUCache {
+	cache := &MultiLevelLRUCache{
 		capacity: capacity,
 		items:    make(map[string]*lruItem),
 		head:     &lruItem{},
@@ -390,7 +390,7 @@ func NewLRUCache(capacity int) *LRUCache {
 }
 
 // Get retrieves a value from the LRU cache
-func (c *LRUCache) Get(ctx context.Context, key string) (interface{}, error) {
+func (c *MultiLevelLRUCache) Get(ctx context.Context, key string) (interface{}, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -406,7 +406,7 @@ func (c *LRUCache) Get(ctx context.Context, key string) (interface{}, error) {
 }
 
 // Set stores a value in the LRU cache
-func (c *LRUCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+func (c *MultiLevelLRUCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -438,7 +438,7 @@ func (c *LRUCache) Set(ctx context.Context, key string, value interface{}, ttl t
 }
 
 // Delete removes a value from the LRU cache
-func (c *LRUCache) Delete(ctx context.Context, key string) error {
+func (c *MultiLevelLRUCache) Delete(ctx context.Context, key string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -454,7 +454,7 @@ func (c *LRUCache) Delete(ctx context.Context, key string) error {
 }
 
 // Clear clears all items from the LRU cache
-func (c *LRUCache) Clear(ctx context.Context) error {
+func (c *MultiLevelLRUCache) Clear(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -466,13 +466,13 @@ func (c *LRUCache) Clear(ctx context.Context) error {
 }
 
 // moveToFront moves an item to the front of the list
-func (c *LRUCache) moveToFront(item *lruItem) {
+func (c *MultiLevelLRUCache) moveToFront(item *lruItem) {
 	c.removeItem(item)
 	c.addToFront(item)
 }
 
 // addToFront adds an item to the front of the list
-func (c *LRUCache) addToFront(item *lruItem) {
+func (c *MultiLevelLRUCache) addToFront(item *lruItem) {
 	item.prev = c.head
 	item.next = c.head.next
 
@@ -481,13 +481,13 @@ func (c *LRUCache) addToFront(item *lruItem) {
 }
 
 // removeItem removes an item from the list
-func (c *LRUCache) removeItem(item *lruItem) {
+func (c *MultiLevelLRUCache) removeItem(item *lruItem) {
 	item.prev.next = item.next
 	item.next.prev = item.prev
 }
 
 // removeOldest removes the oldest item from the list
-func (c *LRUCache) removeOldest() {
+func (c *MultiLevelLRUCache) removeOldest() {
 	item := c.tail.prev
 	if item != c.head {
 		c.removeItem(item)

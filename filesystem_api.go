@@ -1,70 +1,19 @@
 // Agent Framework - File System API
 // SPDX-License-Identifier: AGPL-3.0-or-later
+//
+// NOTE: File system API methods are implemented in app.go to avoid duplicate declarations.
+// This file is kept as a placeholder for future file system-specific API extensions.
+//
+// App.ListFiles()         -> app.go:226 (with depth parameter)
+// App.CreateFile()        -> app.go:148
+// App.ReadFile()          -> app.go:231
+// App.CreateDirectory()   -> app.go:144
+// App.DeleteDirectory()   -> app.go:152
+// App.DeleteFile()        -> app.go:156
+// App.CopyFile()          -> app.go:140
+// App.DownloadFile()      -> app.go:160
 
 package main
 
-import (
-	"context"
-
-	"AgentFramework/agent"
-)
-
-// ListFiles lists files in a directory
-func (a *App) ListFiles(path string) ([]*agent.FileInfo, error) {
-	return a.core.GetFileExplorer().ListFiles(a.ctx, path)
-}
-
-// CreateFile creates a new file
-func (a *App) CreateFile(path string, content string) error {
-	return a.core.GetFileExplorer().CreateFile(a.ctx, path, content)
-}
-
-// ReadFile reads a file's content
-func (a *App) ReadFile(path string) (string, error) {
-	return a.core.GetFileExplorer().ReadFile(a.ctx, path)
-}
-
-// WriteFile writes to a file
-func (a *App) WriteFile(path string, content string) error {
-	return a.core.GetFileExplorer().WriteFile(a.ctx, path, content)
-}
-
-// DeleteFile deletes a file
-func (a *App) DeleteFile(path string) error {
-	return a.core.GetFileExplorer().DeleteFile(a.ctx, path)
-}
-
-// CreateDirectory creates a new directory
-func (a *App) CreateDirectory(path string) error {
-	return a.core.GetFileExplorer().CreateDirectory(a.ctx, path)
-}
-
-// DeleteDirectory deletes a directory
-func (a *App) DeleteDirectory(path string) error {
-	return a.core.GetFileExplorer().DeleteDirectory(a.ctx, path)
-}
-
-// MoveFile moves a file or directory
-func (a *App) MoveFile(src string, dst string) error {
-	return a.core.GetFileExplorer().MoveFile(a.ctx, src, dst)
-}
-
-// CopyFile copies a file or directory
-func (a *App) CopyFile(src string, dst string) error {
-	return a.core.GetFileExplorer().CopyFile(a.ctx, src, dst)
-}
-
-// GetFileInfo returns information about a file or directory
-func (a *App) GetFileInfo(path string) (*agent.FileInfo, error) {
-	return a.core.GetFileExplorer().GetFileInfo(a.ctx, path)
-}
-
-// UploadFile uploads a file to the specified path
-func (a *App) UploadFile(path string, content []byte) error {
-	return a.core.GetFileExplorer().UploadFile(a.ctx, path, content)
-}
-
-// DownloadFile downloads a file from the specified path
-func (a *App) DownloadFile(path string) ([]byte, error) {
-	return a.core.GetFileExplorer().DownloadFile(a.ctx, path)
-}
+// This file is intentionally left as a placeholder.
+// File system methods are defined in app.go to maintain DRY principle.

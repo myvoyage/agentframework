@@ -12,6 +12,7 @@ package channels
 import (
 	"context"
 	"io"
+	"sync"
 )
 
 // ChannelAdapter defines the interface for channel adapters
@@ -245,19 +246,17 @@ type DefaultAdapterFactory struct {
 }
 
 // NewAdapterFactory creates a new adapter factory
+// Note: Built-in adapters need to be registered separately using RegisterAdapter
+// to avoid import cycles. See pkg/channels/adapters for built-in adapter implementations.
 func NewAdapterFactory() *DefaultAdapterFactory {
 	factory := &DefaultAdapterFactory{
 		adapters: make(map[ChannelType]func(string) ChannelAdapter),
 	}
 
-	// Register built-in adapters
-	factory.adapters[ChannelTypeTelegram] = func(id string) ChannelAdapter { return NewTelegramAdapter(id) }
-	factory.adapters[ChannelTypeDiscord] = func(id string) ChannelAdapter { return NewDiscordAdapter(id) }
-	factory.adapters[ChannelTypeSlack] = func(id string) ChannelAdapter { return NewSlackAdapter(id) }
-	factory.adapters[ChannelTypeFeishu] = func(id string) ChannelAdapter { return NewFeishuAdapter(id) }
-	factory.adapters[ChannelTypeWeWork] = func(id string) ChannelAdapter { return NewWeWorkAdapter(id) }
-	factory.adapters[ChannelTypeDingTalk] = func(id string) ChannelAdapter { return NewDingTalkAdapter(id) }
-	factory.adapters[ChannelTypeQQ] = func(id string) ChannelAdapter { return NewQQAdapter(id) }
+	// Built-in adapters are registered in adapters package init() functions
+	// to avoid circular import dependencies.
+	// Import the adapters package to enable built-in adapters:
+	//   import _ "AgentFramework/pkg/channels/adapters"
 
 	return factory
 }
@@ -343,4 +342,32 @@ func (e *ChannelError) Error() string {
 // Unwrap returns the underlying error
 func (e *ChannelError) Unwrap() error {
 	return e.Err
+}
+
+// builtinRegistry holds the global registry for built-in adapters
+// This allows adapters to register themselves without creating circular imports
+var builtinRegistry = struct {
+	sync.RWMutex
+	constructors map[ChannelType]func(string) ChannelAdapter
+}{
+	constructors: make(map[ChannelType]func(string) ChannelAdapter),
+}
+
+// RegisterBuiltinAdapter registers a built-in adapter constructor
+// This function is called by adapters in their init() functions
+func RegisterBuiltinAdapter(channelType ChannelType, constructor func(string) ChannelAdapter) {
+	builtinRegistry.Lock()
+	defer builtinRegistry.Unlock()
+	builtinRegistry.constructors[channelType] = constructor
+}
+
+// RegisterBuiltinAdaptersToFactory registers all built-in adapters to a factory instance
+// This should be called after creating a factory to enable built-in adapter support
+func RegisterBuiltinAdaptersToFactory(factory *DefaultAdapterFactory) {
+	builtinRegistry.RLock()
+	defer builtinRegistry.RUnlock()
+	
+	for channelType, constructor := range builtinRegistry.constructors {
+		factory.RegisterAdapter(channelType, constructor)
+	}
 }

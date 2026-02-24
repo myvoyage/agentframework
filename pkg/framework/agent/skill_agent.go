@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
@@ -31,12 +32,12 @@ import (
 // This allows skills to be used in workflows and other contexts that expect an Agent
 type SkillAgent struct {
 	name   string
-	skill  Skill
+	skill  *Skill
 	thread *Thread
 }
 
 // NewSkillAgent creates a new SkillAgent that wraps the given skill
-func NewSkillAgent(skill Skill) (*SkillAgent, error) {
+func NewSkillAgent(skill *Skill) (*SkillAgent, error) {
 	if skill == nil {
 		return nil, fmt.Errorf("skill cannot be nil")
 	}
@@ -56,7 +57,7 @@ func NewSkillAgent(skill Skill) (*SkillAgent, error) {
 }
 
 // NewSkillAgentWithName creates a new SkillAgent with a custom name
-func NewSkillAgentWithName(name string, skill Skill) (*SkillAgent, error) {
+func NewSkillAgentWithName(name string, skill *Skill) (*SkillAgent, error) {
 	if skill == nil {
 		return nil, fmt.Errorf("skill cannot be nil")
 	}
@@ -107,10 +108,22 @@ func (a *SkillAgent) Run(ctx context.Context, input string, opts ...model.Option
 		return errorMsg, err
 	}
 
+	// Convert result map to JSON string for Content
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		// Create error message
+		errorMsg := &schema.Message{
+			Role:    schema.Assistant,
+			Content: fmt.Sprintf("Error serializing result: %v", err),
+		}
+		a.thread.Messages = append(a.thread.Messages, errorMsg)
+		return errorMsg, err
+	}
+
 	// Create response message
 	responseMsg := &schema.Message{
 		Role:    schema.Assistant,
-		Content: result,
+		Content: string(resultJSON),
 	}
 
 	// Add to thread history
@@ -130,18 +143,39 @@ func (a *SkillAgent) GetThread() *Thread {
 }
 
 // GetSkill returns the underlying skill
-func (a *SkillAgent) GetSkill() Skill {
+func (a *SkillAgent) GetSkill() *Skill {
 	return a.skill
 }
 
-// GetSkillInfo returns the skill's info
+// GetSkillInfo returns the skill's info as schema.ToolInfo
 func (a *SkillAgent) GetSkillInfo(ctx context.Context) (*schema.ToolInfo, error) {
-	return a.skill.Info(ctx)
+	info, err := a.skill.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert SkillInfo to schema.ToolInfo
+	// Note: We can't set the unexported params field directly
+	// The calling code should handle parameter validation separately
+	toolInfo := &schema.ToolInfo{
+		Name: info.Name,
+		Desc: info.Description,
+	}
+
+	return toolInfo, nil
 }
 
 // GetSkillMetadata returns the skill's metadata
 func (a *SkillAgent) GetSkillMetadata(ctx context.Context) SkillMetadata {
-	return a.skill.GetMetadata(ctx)
+	// Skill has Metadata field directly, convert to SkillMetadata
+	return SkillMetadata{
+		ID:          a.skill.ID,
+		Name:        a.skill.Name,
+		Description: a.skill.Description,
+		Version:     a.skill.Version,
+		// Convert Metadata map to appropriate fields if needed
+		// For now, use the Metadata map to populate fields if available
+	}
 }
 
 // SkillAgentWithValidation wraps a SkillAgent with input validation
@@ -154,7 +188,7 @@ type SkillAgentWithValidation struct {
 type InputValidator func(ctx context.Context, input string) error
 
 // NewSkillAgentWithValidation creates a SkillAgent with input validation
-func NewSkillAgentWithValidation(skill Skill, validator InputValidator) (*SkillAgentWithValidation, error) {
+func NewSkillAgentWithValidation(skill *Skill, validator InputValidator) (*SkillAgentWithValidation, error) {
 	agent, err := NewSkillAgent(skill)
 	if err != nil {
 		return nil, err
@@ -189,7 +223,7 @@ type SkillAgentWithRetry struct {
 }
 
 // NewSkillAgentWithRetry creates a SkillAgent with retry logic
-func NewSkillAgentWithRetry(skill Skill, maxRetries int) (*SkillAgentWithRetry, error) {
+func NewSkillAgentWithRetry(skill *Skill, maxRetries int) (*SkillAgentWithRetry, error) {
 	agent, err := NewSkillAgent(skill)
 	if err != nil {
 		return nil, err
@@ -224,7 +258,7 @@ func (a *SkillAgentWithRetry) Run(ctx context.Context, input string, opts ...mod
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
-			case <-timeAfter(a.retryDelay):
+			case <-time.After(time.Duration(a.retryDelay) * time.Millisecond):
 				// Continue to next retry
 			}
 		}
@@ -240,7 +274,7 @@ type SkillAgentWithCache struct {
 }
 
 // NewSkillAgentWithCache creates a SkillAgent with caching
-func NewSkillAgentWithCache(skill Skill) (*SkillAgentWithCache, error) {
+func NewSkillAgentWithCache(skill *Skill) (*SkillAgentWithCache, error) {
 	agent, err := NewSkillAgent(skill)
 	if err != nil {
 		return nil, err
@@ -278,7 +312,7 @@ func (a *SkillAgentWithCache) ClearCache() {
 
 // SkillAgentBuilder provides a fluent interface for building SkillAgents
 type SkillAgentBuilder struct {
-	skill      Skill
+	skill      *Skill
 	name       string
 	validator  InputValidator
 	maxRetries int
@@ -287,7 +321,7 @@ type SkillAgentBuilder struct {
 }
 
 // NewSkillAgentBuilder creates a new SkillAgentBuilder
-func NewSkillAgentBuilder(skill Skill) *SkillAgentBuilder {
+func NewSkillAgentBuilder(skill *Skill) *SkillAgentBuilder {
 	return &SkillAgentBuilder{
 		skill:      skill,
 		maxRetries: -1, // -1 means no retry
@@ -373,25 +407,6 @@ func (b *SkillAgentBuilder) Build() (Agent, error) {
 	}
 
 	return agent, nil
-}
-
-// Helper function to create a time.After channel
-func timeAfter(ms int) <-chan struct{} {
-	ch := make(chan struct{})
-	go func() {
-		// Simple sleep implementation
-		for i := 0; i < ms; i++ {
-			// Sleep for 1ms
-			select {
-			case <-ch:
-				return
-			default:
-				// Continue
-			}
-		}
-		close(ch)
-	}()
-	return ch
 }
 
 // JSONInputValidator validates that input is valid JSON

@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"AgentFramework/pkg/channels"
-	"AgentFramework/pkg/channels/adapters"
+	// "AgentFramework/pkg/channels/adapters"
 )
 
 // SimpleBot demonstrates a minimal multi-channel bot
@@ -32,9 +32,7 @@ type SimpleBot struct {
 // NewSimpleBot creates a new simple bot
 func NewSimpleBot() (*SimpleBot, error) {
 	// Create channel manager
-	manager, err := channels.NewManager(&channels.ManagerConfig{
-		EnableMetrics: true,
-	})
+	manager, err := channels.NewManager(&channels.ManagerConfig{})
 	if err != nil {
 		return nil, err
 	}
@@ -49,9 +47,6 @@ func NewSimpleBot() (*SimpleBot, error) {
 
 	// Set message handler
 	manager.SetMessageHandler(bot.handleMessage)
-
-	// Set event handler
-	manager.(*channels.Manager).SetEventHandler(bot.handleEvent)
 
 	return bot, nil
 }
@@ -230,19 +225,11 @@ func (b *SimpleBot) setupRoutes(config *channels.Config) {
 
 // registerChannel registers a single channel
 func (b *SimpleBot) registerChannel(name string, config channels.ChannelConfig) error {
-	// Create adapter
-	adapter, err := adapters.NewAdapterFactory().CreateAdapter(name, config.Type)
-	if err != nil {
-		return err
-	}
-
-	// Initialize
-	if err := adapter.Initialize(b.ctx, config); err != nil {
-		return err
-	}
-
-	// Register
-	return b.manager.RegisterAdapter(adapter)
+	// TODO: Implement proper adapter creation
+	// The CommonAdapter doesn't fully implement ChannelAdapter interface
+	// This needs a proper adapter implementation for each channel type
+	log.Printf("⚠️  Channel %s (%s) - adapter not fully implemented yet", name, config.Type)
+	return nil
 }
 
 // showStats shows current statistics

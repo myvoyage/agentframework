@@ -13,13 +13,11 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	"AgentFramework/agent"
 	"AgentFramework/pkg/iot"
-	iotadapters "AgentFramework/pkg/iot/adapters"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -146,7 +144,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "IoT device identifier",
 				},
 			},
-			Required: []string{"device_id"],
+			Required: []string{"device_id"},
 		},
 	}, t.handleRemoveDevice)
 
@@ -168,7 +166,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "Attribute name to read (e.g., state, temperature, brightness)",
 				},
 			},
-			Required: []string{"device_id", "attribute"],
+			Required: []string{"device_id", "attribute"},
 		},
 	}, t.handleReadAttribute)
 
@@ -192,7 +190,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "Value to write",
 				},
 			},
-			Required: []string{"device_id", "attribute", "value"],
+			Required: []string{"device_id", "attribute", "value"},
 		},
 	}, t.handleWriteAttribute)
 
@@ -235,7 +233,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "Map of attribute names to values",
 				},
 			},
-			Required: []string{"device_id", "values"],
+			Required: []string{"device_id", "values"},
 		},
 	}, t.handleBatchWriteAttributes)
 
@@ -258,7 +256,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"enum":        []string{"on", "off", "toggle"},
 				},
 			},
-			Required: []string{"device_id", "state"],
+			Required: []string{"device_id", "state"},
 		},
 	}, t.handleSetOnOff)
 
@@ -280,7 +278,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"maximum":     100,
 				},
 			},
-			Required: []string{"device_id", "level"],
+			Required: []string{"device_id", "level"},
 		},
 	}, t.handleSetLevel)
 
@@ -300,7 +298,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "Color in hex format (e.g., #FF0000 for red)",
 				},
 			},
-			Required: []string{"device_id", "color"],
+			Required: []string{"device_id", "color"},
 		},
 	}, t.handleSetColor)
 
@@ -336,7 +334,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"enum":        []string{"zigbee", "zwave", "thread", "nearlink"},
 				},
 			},
-			Required: []string{"protocol"],
+			Required: []string{"protocol"},
 		},
 	}, t.handleResetNetwork)
 
@@ -354,7 +352,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "IoT device identifier",
 				},
 			},
-			Required: []string{"device_id"],
+			Required: []string{"device_id"},
 		},
 	}, t.handlePingDevice)
 
@@ -370,7 +368,7 @@ func (t *IoTMCPTools) RegisterTools(s *server.MCPServer) {
 					"description": "IoT device identifier",
 				},
 			},
-			Required: []string{"device_id"],
+			Required: []string{"device_id"},
 		},
 	}, t.handleGetDiagnostics)
 
@@ -414,7 +412,7 @@ func (t *IoTMCPTools) handleDiscoverDevices(ctx context.Context, request mcp.Cal
 		Protocol       string  `json:"protocol"`
 		TimeoutSeconds float64 `json:"timeout_seconds"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -450,7 +448,7 @@ func (t *IoTMCPTools) handleStartPairing(ctx context.Context, request mcp.CallTo
 		Protocol       string  `json:"protocol"`
 		TimeoutSeconds float64 `json:"timeout_seconds"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -476,7 +474,7 @@ func (t *IoTMCPTools) handleCancelPairing(ctx context.Context, request mcp.CallT
 	var params struct {
 		Protocol string `json:"protocol"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -490,14 +488,14 @@ func (t *IoTMCPTools) handleCancelPairing(ctx context.Context, request mcp.CallT
 		return mcp.NewToolResultError(fmt.Sprintf("Cancel pairing failed: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText("Pairing canceled successfully")
+	return mcp.NewToolResultText("Pairing canceled successfully"), nil
 }
 
 func (t *IoTMCPTools) handleListDevices(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var params struct {
 		Protocol string `json:"protocol"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -514,7 +512,18 @@ func (t *IoTMCPTools) handleListDevices(ctx context.Context, request mcp.CallToo
 	// Convert to device info
 	deviceInfos := make([]*iot.DeviceInfo, 0, len(devices))
 	for _, device := range devices {
-		deviceInfos = append(deviceInfos, device.GetInfo())
+		info := &iot.DeviceInfo{
+			ID:           device.ID(),
+			Name:         device.Name(),
+			Type:         device.Type(),
+			Protocol:     device.Protocol(),
+			Manufacturer: device.Manufacturer(),
+			Model:        device.Model(),
+			Version:      device.Version(),
+			Status:       device.Status(),
+			Capabilities: device.Capabilities(),
+		}
+		deviceInfos = append(deviceInfos, info)
 	}
 
 	result := map[string]interface{}{
@@ -530,7 +539,7 @@ func (t *IoTMCPTools) handleGetDeviceInfo(ctx context.Context, request mcp.CallT
 	var params struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -539,7 +548,17 @@ func (t *IoTMCPTools) handleGetDeviceInfo(ctx context.Context, request mcp.CallT
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get device: %v", err)), nil
 	}
 
-	info := device.GetInfo()
+	info := &iot.DeviceInfo{
+		ID:           device.ID(),
+		Name:         device.Name(),
+		Type:         device.Type(),
+		Protocol:     device.Protocol(),
+		Manufacturer: device.Manufacturer(),
+		Model:        device.Model(),
+		Version:      device.Version(),
+		Status:       device.Status(),
+		Capabilities: device.Capabilities(),
+	}
 	return mcp.NewToolResultJSON(info)
 }
 
@@ -547,7 +566,7 @@ func (t *IoTMCPTools) handleRemoveDevice(ctx context.Context, request mcp.CallTo
 	var params struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -562,7 +581,7 @@ func (t *IoTMCPTools) handleRemoveDevice(ctx context.Context, request mcp.CallTo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to remove device: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Device %s removed successfully", params.DeviceID))
+	return mcp.NewToolResultText(fmt.Sprintf("Device %s removed successfully", params.DeviceID)), nil
 }
 
 func (t *IoTMCPTools) handleReadAttribute(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -570,7 +589,7 @@ func (t *IoTMCPTools) handleReadAttribute(ctx context.Context, request mcp.CallT
 		DeviceID  string `json:"device_id"`
 		Attribute string `json:"attribute"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -599,7 +618,7 @@ func (t *IoTMCPTools) handleWriteAttribute(ctx context.Context, request mcp.Call
 		Attribute string `json:"attribute"`
 		Value     string `json:"value"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -613,7 +632,7 @@ func (t *IoTMCPTools) handleWriteAttribute(ctx context.Context, request mcp.Call
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to write attribute: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Attribute %s set to %s on device %s", params.Attribute, params.Value, params.DeviceID))
+	return mcp.NewToolResultText(fmt.Sprintf("Attribute %s set to %s on device %s", params.Attribute, params.Value, params.DeviceID)), nil
 }
 
 func (t *IoTMCPTools) handleBatchReadAttributes(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -621,7 +640,7 @@ func (t *IoTMCPTools) handleBatchReadAttributes(ctx context.Context, request mcp
 		DeviceID   string   `json:"device_id"`
 		Attributes []string `json:"attributes"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -668,7 +687,7 @@ func (t *IoTMCPTools) handleBatchWriteAttributes(ctx context.Context, request mc
 		DeviceID string                 `json:"device_id"`
 		Values   map[string]interface{} `json:"values"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -684,7 +703,7 @@ func (t *IoTMCPTools) handleBatchWriteAttributes(ctx context.Context, request mc
 			return mcp.NewToolResultError(fmt.Sprintf("Batch write failed: %v", err)), nil
 		}
 
-		return mcp.NewToolResultText(fmt.Sprintf("Successfully wrote %d attributes to device %s", len(params.Values), params.DeviceID))
+		return mcp.NewToolResultText(fmt.Sprintf("Successfully wrote %d attributes to device %s", len(params.Values), params.DeviceID)), nil
 	}
 
 	// Fallback: write individually
@@ -695,7 +714,7 @@ func (t *IoTMCPTools) handleBatchWriteAttributes(ctx context.Context, request mc
 		}
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully wrote %d attributes to device %s", len(params.Values), params.DeviceID))
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully wrote %d attributes to device %s", len(params.Values), params.DeviceID)), nil
 }
 
 func (t *IoTMCPTools) handleSetOnOff(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -703,7 +722,7 @@ func (t *IoTMCPTools) handleSetOnOff(ctx context.Context, request mcp.CallToolRe
 		DeviceID string `json:"device_id"`
 		State    string `json:"state"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -719,7 +738,7 @@ func (t *IoTMCPTools) handleSetOnOff(ctx context.Context, request mcp.CallToolRe
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("Toggle failed: %v", err)), nil
 			}
-			return mcp.NewToolResultText(fmt.Sprintf("Device %s toggled", params.DeviceID))
+			return mcp.NewToolResultText(fmt.Sprintf("Device %s toggled", params.DeviceID)), nil
 		}
 		return mcp.NewToolResultError("Device does not support toggle"), nil
 	}
@@ -730,7 +749,7 @@ func (t *IoTMCPTools) handleSetOnOff(ctx context.Context, request mcp.CallToolRe
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to set state: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Device %s turned %s", params.DeviceID, params.State))
+	return mcp.NewToolResultText(fmt.Sprintf("Device %s turned %s", params.DeviceID, params.State)), nil
 }
 
 func (t *IoTMCPTools) handleSetLevel(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -738,7 +757,7 @@ func (t *IoTMCPTools) handleSetLevel(ctx context.Context, request mcp.CallToolRe
 		DeviceID string  `json:"device_id"`
 		Level    float64 `json:"level"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -752,7 +771,7 @@ func (t *IoTMCPTools) handleSetLevel(ctx context.Context, request mcp.CallToolRe
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to set level: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Device %s level set to %d", params.DeviceID, uint8(params.Level)))
+	return mcp.NewToolResultText(fmt.Sprintf("Device %s level set to %d", params.DeviceID, uint8(params.Level))), nil
 }
 
 func (t *IoTMCPTools) handleSetColor(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -760,7 +779,7 @@ func (t *IoTMCPTools) handleSetColor(ctx context.Context, request mcp.CallToolRe
 		DeviceID string `json:"device_id"`
 		Color    string `json:"color"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -774,14 +793,14 @@ func (t *IoTMCPTools) handleSetColor(ctx context.Context, request mcp.CallToolRe
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to set color: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Device %s color set to %s", params.DeviceID, params.Color))
+	return mcp.NewToolResultText(fmt.Sprintf("Device %s color set to %s", params.DeviceID, params.Color)), nil
 }
 
 func (t *IoTMCPTools) handleGetNetworkInfo(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var params struct {
 		Protocol string `json:"protocol"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -802,7 +821,7 @@ func (t *IoTMCPTools) handleResetNetwork(ctx context.Context, request mcp.CallTo
 	var params struct {
 		Protocol string `json:"protocol"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -816,14 +835,14 @@ func (t *IoTMCPTools) handleResetNetwork(ctx context.Context, request mcp.CallTo
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to reset network: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("%s network reset successfully", params.Protocol))
+	return mcp.NewToolResultText(fmt.Sprintf("%s network reset successfully", params.Protocol)), nil
 }
 
 func (t *IoTMCPTools) handlePingDevice(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var params struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -855,7 +874,7 @@ func (t *IoTMCPTools) handleGetDiagnostics(ctx context.Context, request mcp.Call
 	var params struct {
 		DeviceID string `json:"device_id"`
 	}
-	if err := json.Unmarshal(request.Params.Arguments, &params); err != nil {
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
 		return nil, err
 	}
 
@@ -877,7 +896,7 @@ func (t *IoTMCPTools) handleGetDiagnostics(ctx context.Context, request mcp.Call
 	// Fallback to basic info
 	result := map[string]interface{}{
 		"device_id": params.DeviceID,
-		"status":    device.GetInfo().Status,
+		"status":    device.Status(),
 	}
 
 	return mcp.NewToolResultJSON(result)
@@ -893,7 +912,7 @@ func (t *IoTMCPTools) handleZWaveHealNetwork(ctx context.Context, request mcp.Ca
 	}
 
 	// Type assert to ZWaveAdapter to access HealNetwork
-	if zwaveAdapter, ok := adapter.(*iotadapters.ZWaveAdapter); ok {
+	if zwaveAdapter, ok := adapter.(*iot.ZWaveAdapter); ok {
 		jsClient := zwaveAdapter.GetJSClient()
 		if jsClient == nil {
 			return mcp.NewToolResultError("Z-Wave JS client not available"), nil

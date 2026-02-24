@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"AgentFramework/pkg/channels"
@@ -218,7 +220,7 @@ func (a *FeishuAdapter) SendMessage(ctx context.Context, msg *channels.Message, 
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", feishuMessageURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", feishuMessageURL, strings.NewReader(string(body)))
 	if err != nil {
 		span.RecordError(err)
 		return "", err
@@ -331,7 +333,7 @@ func (a *FeishuAdapter) refreshToken(ctx context.Context) error {
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", feishuAuthURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", feishuAuthURL, strings.NewReader(string(body)))
 	if err != nil {
 		return err
 	}

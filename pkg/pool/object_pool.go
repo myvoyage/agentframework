@@ -150,7 +150,7 @@ func NewContextPool() *ContextPool {
 	return &ContextPool{
 		pool: sync.Pool{
 			New: func() interface{} {
-				ctx := make(Context)
+				ctx := Context{}
 				ctx.data = make(map[interface{}]interface{})
 				return &ctx
 			},

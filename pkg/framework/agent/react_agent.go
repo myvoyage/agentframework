@@ -43,7 +43,7 @@ type ReActAgent struct {
 	inner         *react.Agent
 	thread        *Thread
 	baseOptions   []flowagent.AgentOption
-	memoryManager *MemoryManager
+	memoryManager MemoryManager
 }
 
 // NewReActAgent creates a new ReActAgent with memory management support
@@ -52,7 +52,7 @@ func NewReActAgent(name string, inner *react.Agent, opts ...flowagent.AgentOptio
 		name:          name,
 		inner:         inner,
 		baseOptions:   opts,
-		memoryManager: DefaultMemoryManager(),
+		memoryManager: NewMemoryManager(MemoryOptions{}),
 	}
 }
 

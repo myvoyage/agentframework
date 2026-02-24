@@ -5,6 +5,7 @@
 
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useAppStore } from './appStore'
 
 export const useSecurityStore = defineStore('security', () => {
   // ===== State =====
@@ -56,7 +57,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 登录用户
    */
-  async login(token: string, userInfo: { id: string; name: string; roles?: string[] }) {
+  const login = async(token: string, userInfo: { id: string; name: string; roles?: string[] }) => {
     try {
       // 在实际应用中，这里会调用后端API验证JWT
       // const response = await api.post('/auth/login', { token })
@@ -81,7 +82,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 登出用户
    */
-  async logout() {
+  const logout = async() => {
     isAuthenticated.value = false
     currentUser.value = null
     userRoles.value = []
@@ -94,7 +95,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 检查权限
    */
-  function hasPermission(resource: string, action: string): boolean {
+  const hasPermission = (resource: string, action: string): boolean => {
     const key = `${resource}:${action}`
     return permissions.value[key] || permissions.value['*:*'] || isAdmin.value
   }
@@ -102,7 +103,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 需要权限
    */
-  function requirePermission(resource: string, action: string): boolean {
+  const requirePermission = (resource: string, action: string): boolean => {
     if (!hasPermission(resource, action)) {
       addNotification('warning', `缺少权限: ${resource}:${action}`)
       return false
@@ -113,7 +114,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 验证输入
    */
-  function validateInput(input: string, maxLength?: number): { valid: boolean; error?: string } {
+  const validateInput = (input: string, maxLength?: number): { valid: boolean; error?: string } => {
     stats.value.inputValidations++
 
     if (!input) {
@@ -146,7 +147,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 刷新权限
    */
-  async function refreshPermissions() {
+  const refreshPermissions = async() => {
     if (!currentUser.value) {
       return
     }
@@ -165,7 +166,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 加载用户权限
    */
-  async function loadUserPermissions() {
+  const loadUserPermissions = async() => {
     if (!currentUser.value) {
       return
     }
@@ -197,9 +198,8 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 添加通知
    */
-  function addNotification(type: 'success' | 'error' | 'warning' | 'info', message: string) {
+  const addNotification = (type: 'success' | 'error' | 'warning' | 'info', message: string) => {
     // 将通知传递给应用store
-    const { useAppStore } = require('./appStore')
     const appStore = useAppStore()
     appStore.addNotification(type, message)
   }
@@ -209,14 +209,14 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 更新安全配置
    */
-  function updateSecurityConfig(config: Partial<typeof securityConfig.value>) {
+  const updateSecurityConfig = (config: Partial<typeof securityConfig.value>) => {
     Object.assign(securityConfig.value, config)
   }
 
   /**
    * 初始化安全配置
    */
-  function initSecurityConfig() {
+  const initSecurityConfig = () => {
     // 从localStorage加载配置
     const saved = localStorage.getItem('securityConfig')
     if (saved) {
@@ -232,7 +232,7 @@ export const useSecurityStore = defineStore('security', () => {
   /**
    * 保存安全配置
    */
-  function saveSecurityConfig() {
+  const saveSecurityConfig = () => {
     localStorage.setItem('securityConfig', JSON.stringify(securityConfig.value))
   }
 

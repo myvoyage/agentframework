@@ -16,8 +16,10 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"AgentFramework/pkg/channels"
@@ -254,7 +256,7 @@ func (a *QQAdapter) SendMessage(ctx context.Context, msg *channels.Message, opts
 	}
 
 	// 设置消息类型（私聊/群聊）
-	if groupID, ok := msg.Metadata["group_id"].(string); ok {
+	if groupID := msg.Metadata["group_id"]; groupID != "" {
 		gid, _ := strconv.ParseInt(groupID, 10, 64)
 		qqMsg.MessageType = "group"
 		qqMsg.GroupID = gid
@@ -273,7 +275,7 @@ func (a *QQAdapter) SendMessage(ctx context.Context, msg *channels.Message, opts
 	}
 
 	// Create request
-	req, err := http.NewRequestWithContext(ctx, "POST", qqSendMsgURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", qqSendMsgURL, strings.NewReader(string(body)))
 	if err != nil {
 		span.RecordError(err)
 		return "", err

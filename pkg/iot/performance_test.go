@@ -16,7 +16,6 @@ import (
 	"testing"
 	"time"
 
-	"AgentFramework/pkg/iot/adapters"
 )
 
 // BenchmarkDeviceDiscovery benchmarks device discovery across protocols.

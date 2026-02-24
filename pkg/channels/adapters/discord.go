@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"AgentFramework/pkg/channels"
@@ -296,11 +297,17 @@ func (a *DiscordAdapter) setupHandlers() {
 
 // convertToUnifiedMessage converts Discord message to unified format
 func (a *DiscordAdapter) convertToUnifiedMessage(msg *discordgo.Message) *channels.Message {
+	// Handle display name: use GlobalName if available, otherwise use Username
+	displayName := msg.Author.Username
+	if msg.Author.GlobalName != "" {
+		displayName = msg.Author.GlobalName
+	}
+
 	user := &channels.User{
 		ID:            msg.Author.ID,
 		ChannelUserID: msg.Author.ID,
 		Username:      msg.Author.Username,
-		DisplayName:   msg.Author.GlobalName || msg.Author.Username,
+		DisplayName:   displayName,
 		IsBot:         msg.Author.Bot,
 		ChannelType:   channels.ChannelTypeDiscord,
 	}
@@ -345,8 +352,10 @@ func (a *DiscordAdapter) convertToUnifiedMessage(msg *discordgo.Message) *channe
 	}
 
 	// Handle references (replies)
-	if msg.Reference != nil && msg.Reference.MessageID != "" {
-		unifiedMsg.ReplyToID = msg.Reference.MessageID
+	// In discordgo v0.28+, Reference is a method that returns *discordgo.MessageReference
+	ref := msg.Reference()
+	if ref != nil && ref.MessageID != "" {
+		unifiedMsg.ReplyToID = ref.MessageID
 	}
 
 	// Handle edits
@@ -392,13 +401,16 @@ func (a *DiscordAdapter) buildImageMessage(msg *channels.Message, opts channels.
 
 	att := msg.Attachments[0]
 
+	// For file uploads, discordgo uses Content field for file content (base64 or bytes)
+	// or Reader field for io.Reader. Since we may have a URL, we need to handle this properly.
 	send := &discordgo.MessageSend{
 		Content: msg.Text,
 		Files: []*discordgo.File{
 			{
 				Name:   att.Filename,
-				URL:    att.URL,
-				Reader: nil, // Would need io.Reader for actual upload
+				// Note: In discordgo, File uses Reader for io.Reader or Content for bytes
+				// If URL is provided, the caller should fetch the content first
+				Reader: nil, // Caller should provide io.Reader for actual file upload
 			},
 		},
 	}
@@ -430,13 +442,14 @@ func (a *DiscordAdapter) buildFileMessage(msg *channels.Message, opts channels.M
 
 	att := msg.Attachments[0]
 
+	// For file uploads, discordgo uses Reader field for io.Reader
+	// If URL is provided, the caller should fetch the content first
 	send := &discordgo.MessageSend{
 		Content: msg.Text,
 		Files: []*discordgo.File{
 			{
 				Name:   att.Filename,
-				URL:    att.URL,
-				Reader: nil, // Would need io.Reader for actual upload
+				Reader: nil, // Caller should provide io.Reader for actual file upload
 			},
 		},
 	}

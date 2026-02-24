@@ -107,8 +107,8 @@ func (w *AggregatingParallelWorkflow) Run(ctx context.Context, input string, opt
 			timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(w.timeout)*time.Second)
 			defer cancel()
 
-			// Run agent with timeout
-			msg, agentErr := ag.Run(timeoutCtx, input, opts...)
+			// Run agent with timeout - Agent.Run returns (string, error)
+			content, agentErr := ag.Run(timeoutCtx, input)
 
 			mutex.Lock()
 			defer mutex.Unlock()
@@ -122,7 +122,8 @@ func (w *AggregatingParallelWorkflow) Run(ctx context.Context, input string, opt
 				return
 			}
 
-			results[i] = msg
+			// Convert string result to Message
+			results[i] = &schema.Message{Role: schema.Assistant, Content: content}
 		}()
 	}
 
@@ -168,7 +169,13 @@ func (w *AggregatingParallelWorkflow) Run(ctx context.Context, input string, opt
 		combined += m.Content
 	}
 
-	return w.aggregator.Run(ctx, combined, opts...)
+	// Run aggregator - Agent.Run returns (string, error)
+	aggregatorContent, aggregatorErr := w.aggregator.Run(ctx, combined)
+	if aggregatorErr != nil {
+		return nil, aggregatorErr
+	}
+
+	return &schema.Message{Role: schema.Assistant, Content: aggregatorContent}, nil
 }
 
 func (w *AggregatingParallelWorkflow) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {

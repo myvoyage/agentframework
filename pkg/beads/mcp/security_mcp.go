@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"AgentFramework/agent"
-	"AgentFramework/pkg/beads/security"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -306,10 +305,15 @@ func (t *SecurityMCPTools) RegisterTools(s *server.MCPServer) {
 }
 
 func (t *SecurityMCPTools) handleValidateCommand(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	command, _ := request.Params.Arguments["command"].(string)
-	params, _ := request.Params.Arguments["params"].(map[string]interface{})
+	var params struct {
+		Command string                 `json:"command"`
+		Params  map[string]interface{} `json:"params"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.ValidateCommand(ctx, command, params); err != nil {
+	if err := t.agent.ValidateCommand(ctx, params.Command, params.Params); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Command validation failed: %v", err)), nil
 	}
 
@@ -317,18 +321,23 @@ func (t *SecurityMCPTools) handleValidateCommand(ctx context.Context, request mc
 }
 
 func (t *SecurityMCPTools) handleCheckPermissions(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	userID, _ := request.Params.Arguments["user_id"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
-	action, _ := request.Params.Arguments["action"].(string)
+	var params struct {
+		UserID   string `json:"user_id"`
+		Resource string `json:"resource"`
+		Action   string `json:"action"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	allowed, err := t.agent.CheckPermissions(ctx, userID, resource, action)
+	allowed, err := t.agent.CheckPermissions(ctx, params.UserID, params.Resource, params.Action)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Permission check failed: %v", err)), nil
 	}
 
 	result := map[string]interface{}{
 		"allowed": allowed,
-		"message": fmt.Sprintf("Permission %s for user %s on resource %s: %v", action, userID, resource, allowed),
+		"message": fmt.Sprintf("Permission %s for user %s on resource %s: %v", params.Action, params.UserID, params.Resource, allowed),
 	}
 
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")
@@ -336,84 +345,107 @@ func (t *SecurityMCPTools) handleCheckPermissions(ctx context.Context, request m
 }
 
 func (t *SecurityMCPTools) handleEncryptData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	data, _ := request.Params.Arguments["data"].(string)
-	encoding, _ := request.Params.Arguments["encoding"].(string)
-
-	if encoding == "" {
-		encoding = "base64"
+	var params struct {
+		Data     string `json:"data"`
+		Encoding string `json:"encoding,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	encrypted, err := t.agent.EncryptData(ctx, []byte(data))
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("Encryption failed: %v", err)), nil
+	if params.Encoding == "" {
+		params.Encoding = "base64"
 	}
 
 	var result string
-	switch encoding {
+	var err error
+	switch params.Encoding {
 	case "base64":
-		result, err = t.agent.EncryptToBase64(ctx, []byte(data))
+		result, err = t.agent.EncryptToBase64(ctx, []byte(params.Data))
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Encryption failed: %v", err)), nil
 		}
 	default:
-		return mcp.NewToolResultError(fmt.Sprintf("Unsupported encoding: %s", encoding)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Unsupported encoding: %s", params.Encoding)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Encrypted data (%s): %s", encoding, result)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Encrypted data (%s): %s", params.Encoding, result)), nil
 }
 
 func (t *SecurityMCPTools) handleDecryptData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	encryptedData, _ := request.Params.Arguments["encrypted_data"].(string)
-	encoding, _ := request.Params.Arguments["encoding"].(string)
+	var params struct {
+		EncryptedData string `json:"encrypted_data"`
+		Encoding      string `json:"encoding,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if encoding == "" {
-		encoding = "base64"
+	if params.Encoding == "" {
+		params.Encoding = "base64"
 	}
 
 	var decrypted []byte
 	var err error
 
-	switch encoding {
+	switch params.Encoding {
 	case "base64":
-		decrypted, err = t.agent.DecryptFromBase64(ctx, encryptedData)
+		decrypted, err = t.agent.DecryptFromBase64(ctx, params.EncryptedData)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Decryption failed: %v", err)), nil
 		}
 	default:
-		return mcp.NewToolResultError(fmt.Sprintf("Unsupported encoding: %s", encoding)), nil
+		return mcp.NewToolResultError(fmt.Sprintf("Unsupported encoding: %s", params.Encoding)), nil
 	}
 
 	return mcp.NewToolResultText(string(decrypted)), nil
 }
 
 func (t *SecurityMCPTools) handleGrantPermission(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	userID, _ := request.Params.Arguments["user_id"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
-	action, _ := request.Params.Arguments["action"].(string)
+	var params struct {
+		UserID   string `json:"user_id"`
+		Resource string `json:"resource"`
+		Action   string `json:"action"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.GrantPermission(ctx, userID, resource, action); err != nil {
+	if err := t.agent.GrantPermission(ctx, params.UserID, params.Resource, params.Action); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to grant permission: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully granted permission: user %s can %s resource %s", userID, action, resource)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully granted permission: user %s can %s resource %s", params.UserID, params.Action, params.Resource)), nil
 }
 
 func (t *SecurityMCPTools) handleRevokePermission(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	userID, _ := request.Params.Arguments["user_id"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
-	action, _ := request.Params.Arguments["action"].(string)
+	var params struct {
+		UserID   string `json:"user_id"`
+		Resource string `json:"resource"`
+		Action   string `json:"action"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.RevokePermission(ctx, userID, resource, action); err != nil {
+	if err := t.agent.RevokePermission(ctx, params.UserID, params.Resource, params.Action); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to revoke permission: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully revoked permission: user %s cannot %s resource %s", userID, action, resource)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully revoked permission: user %s cannot %s resource %s", params.UserID, params.Action, params.Resource)), nil
 }
 
 func (t *SecurityMCPTools) handleGetAuditLog(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var params struct {
+		Limit float64 `json:"limit,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
+
 	limit := 0
-	if lim, ok := request.Params.Arguments["limit"].(float64); ok {
-		limit = int(lim)
+	if params.Limit > 0 {
+		limit = int(params.Limit)
 	}
 
 	log, err := t.agent.GetAuditLog(ctx, limit)
@@ -434,52 +466,57 @@ func (t *SecurityMCPTools) handleClearAuditLog(ctx context.Context, request mcp.
 }
 
 func (t *SecurityMCPTools) handleAddACLEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	principal, _ := request.Params.Arguments["principal"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
-
-	actionsInterface, _ := request.Params.Arguments["actions"].(interface{})
-	actionsArray, _ := actionsInterface.([]interface{})
-	actions := make([]string, 0, len(actionsArray))
-
-	for _, actionInterface := range actionsArray {
-		if action, ok := actionInterface.(string); ok {
-			actions = append(actions, action)
-		}
+	var params struct {
+		Principal string   `json:"principal"`
+		Resource  string   `json:"resource"`
+		Actions   []string `json:"actions"`
+		Effect    string   `json:"effect"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	effect, _ := request.Params.Arguments["effect"].(string)
-
-	if err := t.agent.AddACLEntry(ctx, principal, resource, actions, effect); err != nil {
+	if err := t.agent.AddACLEntry(ctx, params.Principal, params.Resource, params.Actions, params.Effect); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to add ACL entry: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully added ACL entry: %s %s %s -> %s", principal, resource, actions, effect)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully added ACL entry: %s %s %v -> %s", params.Principal, params.Resource, params.Actions, params.Effect)), nil
 }
 
 func (t *SecurityMCPTools) handleRemoveACLEntry(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	principal, _ := request.Params.Arguments["principal"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
+	var params struct {
+		Principal string `json:"principal"`
+		Resource  string `json:"resource"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.RemoveACLEntry(ctx, principal, resource); err != nil {
+	if err := t.agent.RemoveACLEntry(ctx, params.Principal, params.Resource); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to remove ACL entry: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully removed ACL entry: %s %s", principal, resource)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully removed ACL entry: %s %s", params.Principal, params.Resource)), nil
 }
 
 func (t *SecurityMCPTools) handleCheckACL(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	principal, _ := request.Params.Arguments["principal"].(string)
-	resource, _ := request.Params.Arguments["resource"].(string)
-	action, _ := request.Params.Arguments["action"].(string)
+	var params struct {
+		Principal string `json:"principal"`
+		Resource  string `json:"resource"`
+		Action    string `json:"action"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	allowed, err := t.agent.CheckACL(ctx, principal, resource, action)
+	allowed, err := t.agent.CheckACL(ctx, params.Principal, params.Resource, params.Action)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("ACL check failed: %v", err)), nil
 	}
 
 	result := map[string]interface{}{
 		"allowed": allowed,
-		"message": fmt.Sprintf("ACL check for %s on %s by %s: %v", action, resource, principal, allowed),
+		"message": fmt.Sprintf("ACL check for %s on %s by %s: %v", params.Action, params.Resource, params.Principal, allowed),
 	}
 
 	resultJSON, _ := json.MarshalIndent(result, "", "  ")

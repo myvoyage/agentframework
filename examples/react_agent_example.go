@@ -22,7 +22,7 @@ import (
 
 	"go.uber.org/zap"
 
-	"AgentFramework/pkg/framework/agent/react"
+	"AgentFramework/pkg/framework/agent/react_experimental"
 	"AgentFramework/pkg/errors"
 )
 
@@ -37,7 +37,7 @@ func main() {
 	ctx := context.Background()
 
 	// 创建 ReAct Agent 配置
-	config := &react.ReActConfig{
+	config := &react_experimental.ReActConfig{
 		ModelName:            "gpt-4",
 		MaxIterations:       10,
 		MaxTokens:           2000,
@@ -49,7 +49,7 @@ func main() {
 	}
 
 	// 使用全局工厂创建 ReAct Agent
-	agent, err := react.GetGlobalReActAgentFactory().CreateAgent(ctx, config)
+	agent, err := react_experimental.GetGlobalReActAgentFactory().CreateAgent(ctx, config)
 	if err != nil {
 		logger.Error("Failed to create ReAct Agent",
 			zap.Error(err),
@@ -76,7 +76,7 @@ func main() {
 			break
 		}
 
-		if state.Status == react.ReActStatusCompleted || state.Status == react.ReActStatusFailed {
+		if state.Status == react_experimental.ReActStatusCompleted || state.Status == react_experimental.ReActStatusFailed {
 			break
 		}
 

@@ -95,7 +95,7 @@ func (c *Context) Clear() {
 }
 
 // PoolMetrics aggregates metrics from all pools
-type PoolMetrics struct {
+type GlobalPoolMetrics struct {
 	MessageAllocated int64
 	MessagePooled     int64
 	MessageReused     int64
@@ -109,7 +109,7 @@ type PoolMetrics struct {
 }
 
 // GetAllMetrics returns metrics from all global pools
-func GetAllMetrics() PoolMetrics {
+func GetAllMetrics() GlobalPoolMetrics {
 	msgStats := DefaultMessagePool.Stats()
 	eventStats := DefaultEventPool.Stats()
 	ctxStats := DefaultContextPool.Stats()
@@ -122,7 +122,7 @@ func GetAllMetrics() PoolMetrics {
 		rate = float64(totalReused) / float64(totalAllocated) * 100
 	}
 
-	return PoolMetrics{
+	return GlobalPoolMetrics{
 		MessageAllocated: msgStats.Allocated,
 		MessagePooled:     msgStats.Pooled,
 		MessageReused:     msgStats.Reused,

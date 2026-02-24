@@ -41,6 +41,7 @@ import (
 
 // SequentialWorkflow represents a sequential workflow that executes agents in order.
 type SequentialWorkflow struct {
+	id     string
 	name   string
 	agents []Agent
 	store  CheckpointStore
@@ -49,6 +50,7 @@ type SequentialWorkflow struct {
 // NewSequentialWorkflow creates a new SequentialWorkflow instance.
 func NewSequentialWorkflow(name string, agents ...Agent) *SequentialWorkflow {
 	return &SequentialWorkflow{
+		id:     uuid.New().String(),
 		name:   name,
 		agents: agents,
 		store:  NewMemoryCheckpointStore(), // Default to memory store
@@ -59,7 +61,22 @@ func (w *SequentialWorkflow) Name() string {
 	return w.name
 }
 
-func (w *SequentialWorkflow) WithCheckpointStore(store CheckpointStore) Workflow {
+// GetName returns the workflow name (alias for Name)
+func (w *SequentialWorkflow) GetName() string {
+	return w.name
+}
+
+// GetID returns the workflow ID
+func (w *SequentialWorkflow) GetID() string {
+	return w.id
+}
+
+// GetType returns the workflow type
+func (w *SequentialWorkflow) GetType() string {
+	return "sequential"
+}
+
+func (w *SequentialWorkflow) WithCheckpointStore(store CheckpointStore) WorkflowInterface {
 	w.store = store
 	return w
 }
@@ -68,65 +85,77 @@ func (w *SequentialWorkflow) Run(ctx context.Context, input string, opts ...mode
 	// Create a new run ID for this execution
 	runID := uuid.NewString()
 
-	// Create initial checkpoint
+	// Create initial checkpoint with WorkflowState
+	nodeStates := make(map[string]string)
 	cp := &Checkpoint{
 		RunID:        runID,
 		WorkflowName: w.name,
 		Status:       StatusRunning,
 		Input:        input,
 		Progress:     0.0,
-		State:        &WorkflowState{NodeStates: make(map[string]string)},
+		State:        map[string]interface{}{"node_states": nodeStates},
 		CreatedAt:    time.Now(),
 		UpdatedAt:    time.Now(),
 	}
 
 	// Save initial checkpoint
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
 	var (
 		text string = input
-		resp *schema.Message
-		err  error
 	)
 
 	for i, ag := range w.agents {
 		// Update checkpoint with current progress
 		cp.Progress = float64(i) / float64(len(w.agents))
 		cp.UpdatedAt = time.Now()
-		cp.State.NodeStates[fmt.Sprintf("step_%d", i)] = text
-		if err := w.store.Save(ctx, cp); err != nil {
+
+		// Update node states
+		nodeStates[fmt.Sprintf("step_%d", i)] = text
+		cp.State["node_states"] = nodeStates
+
+		if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 			return nil, err
 		}
 
-		resp, err = ag.Run(ctx, text, opts...)
+		// Run agent - Agent.Run returns (string, error), not accepting opts
+		content, err := ag.Run(ctx, text)
 		if err != nil {
 			// Update checkpoint with error status
 			cp.Status = StatusFailed
 			cp.Error = err.Error()
 			cp.UpdatedAt = time.Now()
-			_ = w.store.Save(ctx, cp)
+			_ = w.store.SaveCheckpoint(ctx, cp)
 			return nil, err
 		}
-		text = resp.Content
+		text = content
 	}
 
 	// Update checkpoint with completion status
 	cp.Status = StatusCompleted
 	cp.Progress = 1.0
-	cp.Output = resp.Content
+	cp.Output = text
 	cp.UpdatedAt = time.Now()
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
-	return resp, nil
+	return &schema.Message{Role: schema.Assistant, Content: text}, nil
+}
+
+// RunResumable implements the WorkflowInterface for resumable execution
+func (w *SequentialWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	// For now, just call the regular Run method
+	// A proper implementation would use the state to resume from a specific point
+	msg, err := w.Run(ctx, input, opts...)
+	return msg, nil, err
 }
 
 func (w *SequentialWorkflow) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
 	// Load checkpoint
-	cp, err := w.store.Load(ctx, runID)
+	cp, err := w.store.GetCheckpoint(ctx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -139,20 +168,23 @@ func (w *SequentialWorkflow) Resume(ctx context.Context, runID string, input str
 	// Update checkpoint status to running
 	cp.Status = StatusRunning
 	cp.UpdatedAt = time.Now()
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
-	// Determine which step to resume from
-	step := 0
-	if cp.State != nil && len(cp.State.NodeStates) > 0 {
-		// Find the last completed step
-		step = len(cp.State.NodeStates)
+	// Extract node states from checkpoint
+	var nodeStates map[string]string
+	if stateMap, ok := cp.State["node_states"].(map[string]string); ok {
+		nodeStates = stateMap
+	} else {
+		nodeStates = make(map[string]string)
 	}
+
+	// Determine which step to resume from
+	step := len(nodeStates)
 
 	var (
 		text string = input
-		resp *schema.Message
 	)
 
 	// If we're resuming from the beginning, use the original input
@@ -160,7 +192,7 @@ func (w *SequentialWorkflow) Resume(ctx context.Context, runID string, input str
 		text = cp.Input
 	} else {
 		// Otherwise, use the output from the last completed step
-		text = cp.State.NodeStates[fmt.Sprintf("step_%d", step-1)]
+		text = nodeStates[fmt.Sprintf("step_%d", step-1)]
 	}
 
 	// Continue execution from the current step
@@ -168,31 +200,36 @@ func (w *SequentialWorkflow) Resume(ctx context.Context, runID string, input str
 		// Update checkpoint with current progress
 		cp.Progress = float64(i) / float64(len(w.agents))
 		cp.UpdatedAt = time.Now()
-		cp.State.NodeStates[fmt.Sprintf("step_%d", i)] = text
-		if err := w.store.Save(ctx, cp); err != nil {
+
+		// Update node states
+		nodeStates[fmt.Sprintf("step_%d", i)] = text
+		cp.State["node_states"] = nodeStates
+
+		if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 			return nil, err
 		}
 
-		resp, err = w.agents[i].Run(ctx, text, opts...)
+		// Run agent - Agent.Run returns (string, error)
+		content, err := w.agents[i].Run(ctx, text)
 		if err != nil {
 			// Update checkpoint with error status
 			cp.Status = StatusFailed
 			cp.Error = err.Error()
 			cp.UpdatedAt = time.Now()
-			_ = w.store.Save(ctx, cp)
+			_ = w.store.SaveCheckpoint(ctx, cp)
 			return nil, err
 		}
-		text = resp.Content
+		text = content
 	}
 
 	// Update checkpoint with completion status
 	cp.Status = StatusCompleted
 	cp.Progress = 1.0
-	cp.Output = resp.Content
+	cp.Output = text
 	cp.UpdatedAt = time.Now()
-	if err := w.store.Save(ctx, cp); err != nil {
+	if err := w.store.SaveCheckpoint(ctx, cp); err != nil {
 		return nil, err
 	}
 
-	return resp, nil
+	return &schema.Message{Role: schema.Assistant, Content: text}, nil
 }

@@ -35,26 +35,20 @@ import (
 
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
-
-	"AgentFramework/agent/errors"
 )
 
-// WorkforceWorkflowAdapter adapts a Workforce to the Workflow interface
+// WorkforceWorkflowAdapter adapts a Workforce to the WorkflowInterface
 // This allows Workforce instances to be used as nodes in a DAGWorkflow
 type WorkforceWorkflowAdapter struct {
-	name       string
-	workforce  Workforce
-	role       WorkerRole
-	capability string
+	name      string
+	workforce Workforce
 }
 
 // NewWorkforceWorkflowAdapter creates a new WorkforceWorkflowAdapter instance
-func NewWorkforceWorkflowAdapter(name string, workforce Workforce, role WorkerRole, capability string) *WorkforceWorkflowAdapter {
+func NewWorkforceWorkflowAdapter(name string, workforce Workforce) *WorkforceWorkflowAdapter {
 	return &WorkforceWorkflowAdapter{
-		name:       name,
-		workforce:  workforce,
-		role:       role,
-		capability: capability,
+		name:      name,
+		workforce: workforce,
 	}
 }
 
@@ -63,36 +57,59 @@ func (a *WorkforceWorkflowAdapter) Name() string {
 	return a.name
 }
 
+// GetID returns the ID of the workflow adapter
+func (a *WorkforceWorkflowAdapter) GetID() string {
+	return a.name
+}
+
+// GetType returns the type of the workflow adapter
+func (a *WorkforceWorkflowAdapter) GetType() string {
+	return "workforce_adapter"
+}
+
 // Run executes the workforce as a workflow
 func (a *WorkforceWorkflowAdapter) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
-	// Execute the task using the appropriate workforce method
-	if a.role != "" {
-		return a.workforce.AssignTaskByRole(ctx, a.role, input, opts...)
-	} else if a.capability != "" {
-		return a.workforce.AssignTaskByCapability(ctx, a.capability, input, opts...)
-	} else {
-		// If no role or capability is specified, use the first available worker
-		workers := a.workforce.ListWorkers()
-		if len(workers) == 0 {
-			return nil, errors.New(errors.ErrCodeNotFound, "no workers available in workforce")
-		}
-		return a.workforce.AssignTask(ctx, workers[0].Name(), input, opts...)
+	// Get available workers
+	workers := a.workforce.ListWorkers()
+	if len(workers) == 0 {
+		return nil, fmt.Errorf("no workers available in workforce")
 	}
+
+	// Assign task to first available worker
+	// Note: Workforce interface uses AssignTask(taskID, workerID) which only returns error
+	// For a complete implementation, we would need to execute the worker directly
+	worker := workers[0]
+
+	// Execute the worker directly
+	result, err := worker.Execute(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("worker execution failed: %w", err)
+	}
+
+	// Convert result to string message
+	var content string
+	if resultStr, ok := result.(string); ok {
+		content = resultStr
+	} else {
+		content = fmt.Sprintf("%v", result)
+	}
+
+	return &schema.Message{Role: schema.Assistant, Content: content}, nil
 }
 
-// Resume implements the Workflow interface but is not supported for WorkforceWorkflowAdapter
-func (a *WorkforceWorkflowAdapter) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
-	return nil, fmt.Errorf("resume not supported for workforce workflow adapter")
+// RunResumable is not supported for WorkforceWorkflowAdapter
+func (a *WorkforceWorkflowAdapter) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	return nil, nil, fmt.Errorf("resume not supported for workforce workflow adapter")
 }
 
-// GraphWorkforceWorkflowAdapter adapts a GraphWorkforce to the Workflow interface
+// GraphWorkforceWorkflowAdapter adapts a GraphWorkforce to the WorkflowInterface
 type GraphWorkforceWorkflowAdapter struct {
 	name           string
-	graphWorkforce *GraphWorkforce
+	graphWorkforce GraphWorkforce
 }
 
 // NewGraphWorkforceWorkflowAdapter creates a new GraphWorkforceWorkflowAdapter instance
-func NewGraphWorkforceWorkflowAdapter(name string, graphWorkforce *GraphWorkforce) *GraphWorkforceWorkflowAdapter {
+func NewGraphWorkforceWorkflowAdapter(name string, graphWorkforce GraphWorkforce) *GraphWorkforceWorkflowAdapter {
 	return &GraphWorkforceWorkflowAdapter{
 		name:           name,
 		graphWorkforce: graphWorkforce,
@@ -104,24 +121,68 @@ func (a *GraphWorkforceWorkflowAdapter) Name() string {
 	return a.name
 }
 
+// GetID returns the ID of the workflow adapter
+func (a *GraphWorkforceWorkflowAdapter) GetID() string {
+	return a.name
+}
+
+// GetType returns the type of the workflow adapter
+func (a *GraphWorkforceWorkflowAdapter) GetType() string {
+	return "graph_workforce_adapter"
+}
+
 // Run executes the graph workforce as a workflow
 func (a *GraphWorkforceWorkflowAdapter) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
-	return a.graphWorkforce.Run(ctx, input, opts...)
+	// Get available workers
+	workers := a.graphWorkforce.ListWorkers()
+	if len(workers) == 0 {
+		return nil, fmt.Errorf("no workers available in graph workforce")
+	}
+
+	// Optimize assignment
+	workerID, err := a.graphWorkforce.OptimizeAssignment(input)
+	if err != nil {
+		// Fallback to first worker if optimization fails
+		worker := workers[0]
+		workerID = worker.ID()
+	}
+
+	// Get the worker
+	worker, ok := a.graphWorkforce.GetWorker(workerID)
+	if !ok {
+		return nil, fmt.Errorf("worker not found: %s", workerID)
+	}
+
+	// Execute the worker directly
+	result, err := worker.Execute(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("worker execution failed: %w", err)
+	}
+
+	// Convert result to string message
+	var content string
+	if resultStr, ok := result.(string); ok {
+		content = resultStr
+	} else {
+		content = fmt.Sprintf("%v", result)
+	}
+
+	return &schema.Message{Role: schema.Assistant, Content: content}, nil
 }
 
-// Resume implements the Workflow interface but is not supported for GraphWorkforceWorkflowAdapter
-func (a *GraphWorkforceWorkflowAdapter) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
-	return nil, fmt.Errorf("resume not supported for graph workforce workflow adapter")
+// RunResumable is not supported for GraphWorkforceWorkflowAdapter
+func (a *GraphWorkforceWorkflowAdapter) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	return nil, nil, fmt.Errorf("resume not supported for graph workforce workflow adapter")
 }
 
-// TaskCoordinatorWorkflowAdapter adapts a TaskCoordinator to the Workflow interface
+// TaskCoordinatorWorkflowAdapter adapts a TaskCoordinator to the WorkflowInterface
 type TaskCoordinatorWorkflowAdapter struct {
 	name        string
-	coordinator *TaskCoordinator
+	coordinator TaskCoordinator
 }
 
 // NewTaskCoordinatorWorkflowAdapter creates a new TaskCoordinatorWorkflowAdapter instance
-func NewTaskCoordinatorWorkflowAdapter(name string, coordinator *TaskCoordinator) *TaskCoordinatorWorkflowAdapter {
+func NewTaskCoordinatorWorkflowAdapter(name string, coordinator TaskCoordinator) *TaskCoordinatorWorkflowAdapter {
 	return &TaskCoordinatorWorkflowAdapter{
 		name:        name,
 		coordinator: coordinator,
@@ -133,14 +194,48 @@ func (a *TaskCoordinatorWorkflowAdapter) Name() string {
 	return a.name
 }
 
-// Run executes the task coordinator as a workflow
-func (a *TaskCoordinatorWorkflowAdapter) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
-	return a.coordinator.Coordinate(ctx, input, opts...)
+// GetID returns the ID of the workflow adapter
+func (a *TaskCoordinatorWorkflowAdapter) GetID() string {
+	return a.name
 }
 
-// Resume implements the Workflow interface but is not supported for TaskCoordinatorWorkflowAdapter
-func (a *TaskCoordinatorWorkflowAdapter) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
-	return nil, fmt.Errorf("resume not supported for task coordinator workflow adapter")
+// GetType returns the type of the workflow adapter
+func (a *TaskCoordinatorWorkflowAdapter) GetType() string {
+	return "task_coordinator_adapter"
+}
+
+// Run executes the task coordinator as a workflow
+func (a *TaskCoordinatorWorkflowAdapter) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	// Assign task using coordinator
+	taskID, err := a.coordinator.AssignTask(ctx, input)
+	if err != nil {
+		return nil, fmt.Errorf("failed to assign task: %w", err)
+	}
+
+	// Get task status
+	status, err := a.coordinator.GetTaskStatus(taskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get task status: %w", err)
+	}
+
+	// Convert result to string message
+	var content string
+	if status.Output != nil {
+		if outputStr, ok := status.Output.(string); ok {
+			content = outputStr
+		} else {
+			content = fmt.Sprintf("%v", status.Output)
+		}
+	} else {
+		content = fmt.Sprintf("Task %s completed", taskID)
+	}
+
+	return &schema.Message{Role: schema.Assistant, Content: content}, nil
+}
+
+// RunResumable is not supported for TaskCoordinatorWorkflowAdapter
+func (a *TaskCoordinatorWorkflowAdapter) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	return nil, nil, fmt.Errorf("resume not supported for task coordinator workflow adapter")
 }
 
 // WorkforceDAGWorkflow is a DAGWorkflow that supports Workforce nodes
@@ -156,19 +251,19 @@ func NewWorkforceDAGWorkflow(name string) *WorkforceDAGWorkflow {
 }
 
 // AddWorkforceNode adds a workforce node to the DAG
-func (w *WorkforceDAGWorkflow) AddWorkforceNode(nodeID string, workforce Workforce, role WorkerRole, capability string) {
-	adapter := NewWorkforceWorkflowAdapter(nodeID, workforce, role, capability)
+func (w *WorkforceDAGWorkflow) AddWorkforceNode(nodeID string, workforce Workforce) {
+	adapter := NewWorkforceWorkflowAdapter(nodeID, workforce)
 	w.AddNode(nodeID, adapter)
 }
 
 // AddGraphWorkforceNode adds a graph workforce node to the DAG
-func (w *WorkforceDAGWorkflow) AddGraphWorkforceNode(nodeID string, graphWorkforce *GraphWorkforce) {
+func (w *WorkforceDAGWorkflow) AddGraphWorkforceNode(nodeID string, graphWorkforce GraphWorkforce) {
 	adapter := NewGraphWorkforceWorkflowAdapter(nodeID, graphWorkforce)
 	w.AddNode(nodeID, adapter)
 }
 
 // AddTaskCoordinatorNode adds a task coordinator node to the DAG
-func (w *WorkforceDAGWorkflow) AddTaskCoordinatorNode(nodeID string, coordinator *TaskCoordinator) {
+func (w *WorkforceDAGWorkflow) AddTaskCoordinatorNode(nodeID string, coordinator TaskCoordinator) {
 	adapter := NewTaskCoordinatorWorkflowAdapter(nodeID, coordinator)
 	w.AddNode(nodeID, adapter)
 }

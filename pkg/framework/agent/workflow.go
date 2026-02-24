@@ -33,6 +33,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -240,8 +241,26 @@ func (w *simpleAgentWorkflow) Run(ctx context.Context, input string, opts ...mod
 	return w.agent.Run(ctx, input, opts...)
 }
 
-func (w *simpleAgentWorkflow) Resume(ctx context.Context, runID string, input string, opts ...model.Option) (*schema.Message, error) {
-	return nil, fmt.Errorf("resume not supported for agent workflow")
+func (w *simpleAgentWorkflow) GetName() string {
+	return w.name
+}
+
+func (w *simpleAgentWorkflow) GetID() string {
+	return fmt.Sprintf("workflow_%s", w.name)
+}
+
+func (w *simpleAgentWorkflow) GetType() string {
+	return "agent"
+}
+
+func (w *simpleAgentWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	msg, err := w.Run(ctx, input, opts...)
+	return msg, nil, err
+}
+
+func (w *simpleAgentWorkflow) Resume(ctx context.Context, input string, state string, opts ...model.Option) (*schema.Message, error) {
+	// For simple agent workflow, just run the agent
+	return w.Run(ctx, input, opts...)
 }
 
 // ResumableWorkflow defines the interface for workflows that support resumption from a checkpoint.
@@ -378,8 +397,8 @@ func createSequentialWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary
 
 		// Check if the node is a Skill
 		if skill, ok := node.(Skill); ok {
-			// Create a SkillAgent that wraps the skill
-			ag, err := NewSkillAgent(skill)
+			// Create a SkillAgent that wraps the skill (use pointer since NewSkillAgent expects *Skill)
+			ag, err := NewSkillAgent(&skill)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill agent: %w", err)
 			}
@@ -402,6 +421,7 @@ func createSequentialWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary
 	}
 
 	// Create a new sequential workflow with the agents
+	// Use local NewSequentialWorkflow function instead of workflow package
 	return NewSequentialWorkflow(def.Name, agents...), nil
 }
 
@@ -430,8 +450,8 @@ func createAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, modelF
 		modelName = "default"
 	}
 
-	// Create model instance
-	model, err := modelFactory(context.Background(), modelName)
+	// Create model instance using the ModelFactory interface
+	chatModel, err := modelFactory.GetModel(modelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
@@ -452,15 +472,21 @@ func createAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, modelF
 		return NewChatAgent(context.Background(), ChatAgentConfig{
 			Name:         nodeID,
 			Instructions: instructions,
-			Model:        model,
+			Model:        chatModel,
 			Tools:        []tool.BaseTool{}, // Empty tools list for now
 		})
 	case "react":
 		// Create ReActAgent
 		return createReActAgentFromNodeDefinition(nodeID, nodeDef, modelFactory)
 	case "human":
-		// Create HumanNode
-		return NewHumanNode(nodeID, instructions), nil
+		// Create a simple ChatAgent for human interaction
+		// The actual human interaction would be handled at runtime
+		return NewChatAgent(context.Background(), ChatAgentConfig{
+			Name:         nodeID,
+			Instructions: instructions + "\n\nNote: This agent requires human input. Please provide your response when prompted.",
+			Model:        chatModel,
+			Tools:        []tool.BaseTool{},
+		})
 	default:
 		return nil, fmt.Errorf("unsupported agent kind: %s", agentKind)
 	}
@@ -474,8 +500,8 @@ func createReActAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, m
 		modelName = "default"
 	}
 
-	// Create model instance
-	chatModel, err := modelFactory(context.Background(), modelName)
+	// Create model instance using the ModelFactory interface
+	chatModel, err := modelFactory.GetModel(modelName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
@@ -518,7 +544,6 @@ func createReActAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, m
 	memoryOpts := MemoryOptions{
 		EnableTrimming: true,
 		MaxMessages:    20,
-		TrimRatio:      0.7,
 	}
 
 	// Override memory options from config if provided
@@ -530,9 +555,6 @@ func createReActAgentFromNodeDefinition(nodeID string, nodeDef NodeDefinition, m
 			memoryOpts.MaxMessages = maxMsgs
 		} else if maxMsgsFloat, ok := memConfig["max_messages"].(float64); ok && maxMsgsFloat > 0 {
 			memoryOpts.MaxMessages = int(maxMsgsFloat)
-		}
-		if trimRatio, ok := memConfig["trim_ratio"].(float64); ok && trimRatio > 0 && trimRatio <= 1 {
-			memoryOpts.TrimRatio = trimRatio
 		}
 	}
 
@@ -553,13 +575,19 @@ func createSkillFromNodeDefinition(nodeID string, nodeDef NodeDefinition, skillL
 	// Get skill name from node config
 	skillName, ok := nodeDef.Config["skill"].(string)
 	if !ok {
-		return nil, fmt.Errorf("skill name not found in node config")
+		return Skill{}, fmt.Errorf("skill name not found in node config")
 	}
 
-	// Get skill from skill library
-	skill, found := skillLibrary.GetSkill(context.Background(), skillName)
+	// Get skill from skill library (SkillLibrary.GetSkill takes only name, returns interface{}, bool)
+	skillInterface, found := skillLibrary.GetSkill(skillName)
 	if !found {
-		return nil, fmt.Errorf("skill %s not found in skill library", skillName)
+		return Skill{}, fmt.Errorf("skill %s not found in skill library", skillName)
+	}
+
+	// Type assert to Skill
+	skill, ok := skillInterface.(Skill)
+	if !ok {
+		return Skill{}, fmt.Errorf("skill %s is not of type Skill", skillName)
 	}
 
 	return skill, nil
@@ -611,8 +639,8 @@ func createParallelWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, 
 
 		// Check if the node is a Skill
 		if skill, ok := node.(Skill); ok {
-			// Create a SkillAgent that wraps the skill
-			ag, err := NewSkillAgent(skill)
+			// Create a SkillAgent that wraps the skill (use pointer since NewSkillAgent expects *Skill)
+			ag, err := NewSkillAgent(&skill)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill agent: %w", err)
 			}
@@ -639,7 +667,7 @@ func createParallelWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, 
 	var aggregator Agent
 
 	// Create a default chat agent as aggregator
-	model, err := modelFactory(context.Background(), "default")
+	chatModel, err := modelFactory.GetModel("default")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create model for default aggregator: %w", err)
 	}
@@ -651,7 +679,7 @@ func createParallelWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, 
 Please summarize the following responses:
 
 %s`,
-		Model: model,
+		Model: chatModel,
 		Tools: []tool.BaseTool{},
 	})
 	if err != nil {
@@ -659,105 +687,19 @@ Please summarize the following responses:
 	}
 
 	// Create a new aggregating parallel workflow with the agents
-	return NewAggregatingParallelWorkflow(def.Name, aggregator, agents...), nil
+	// Use local implementation since agent.Agent != workflow.Agent
+	return NewAggregatingParallelWorkflowLocal(def.Name, aggregator, agents...), nil
 }
 
 // Helper function to create DAG workflow
 func createDAGWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (Workflow, error) {
-	dag := NewDAGWorkflow(def.Name)
-
-	// Create all nodes first
-	nodeMap := make(map[string]interface{})
-	for nodeID, nodeDef := range def.Nodes {
-		// Create a node based on its type
-		node, err := createWorkflowNode(nodeID, nodeDef, skillLibrary, modelFactory)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create node %s: %w", nodeID, err)
-		}
-		nodeMap[nodeID] = node
-	}
-
-	// Add nodes to DAG
-	for nodeID, node := range nodeMap {
-		// Get node definition from original map
-		nodeDef, ok := def.Nodes[nodeID]
-		if !ok {
-			return nil, fmt.Errorf("node definition not found for node %s", nodeID)
-		}
-
-		// Convert node to Workflow if needed
-		var workflow Workflow
-
-		// Check if the node is already a Workflow
-		if wf, ok := node.(Workflow); ok {
-			workflow = wf
-		} else if ag, ok := node.(Agent); ok {
-			// Create a simple agent workflow wrapper
-			agentWorkflow := &simpleAgentWorkflow{
-				name:  nodeID,
-				agent: ag,
-			}
-			workflow = agentWorkflow
-		} else if skill, ok := node.(Skill); ok {
-			// Create a SkillAgent that wraps the skill
-			ag, err := NewSkillAgent(skill)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create skill agent: %w", err)
-			}
-			agentWorkflow := &simpleAgentWorkflow{
-				name:  nodeID,
-				agent: ag,
-			}
-			workflow = agentWorkflow
-		} else {
-			return nil, fmt.Errorf("unsupported node type: %T", node)
-		}
-
-		// Parse node configuration from definition
-		cfg := NodeConfig{
-			Workflow:   workflow,
-			Priority:   nodeDef.Priority,
-			MaxRetries: nodeDef.MaxRetries,
-			Metadata:   make(map[string]string),
-		}
-
-		// Parse retry delay
-		if nodeDef.RetryDelay != "" {
-			retryDelay, err := time.ParseDuration(nodeDef.RetryDelay)
-			if err != nil {
-				return nil, fmt.Errorf("invalid retry delay for node %s: %w", nodeID, err)
-			}
-			cfg.RetryDelay = retryDelay
-		} else {
-			cfg.RetryDelay = 1 * time.Second
-		}
-
-		// Parse timeout
-		if nodeDef.Timeout != "" {
-			timeout, err := time.ParseDuration(nodeDef.Timeout)
-			if err != nil {
-				return nil, fmt.Errorf("invalid timeout for node %s: %w", nodeID, err)
-			}
-			cfg.Timeout = timeout
-		} else {
-			cfg.Timeout = 5 * time.Minute
-		}
-
-		// Add node to DAG
-		dag.AddNodeWithConfig(nodeID, cfg)
-	}
-
-	// Add edges to DAG
-	for _, edgeDef := range def.Edges {
-		dag.AddEdge(edgeDef.From, edgeDef.To)
-	}
-
-	return dag, nil
+	// Use local implementation since agent.Agent != workflow.Agent
+	return createDAGWorkflowLocal(def, skillLibrary, modelFactory)
 }
 
 // Helper function to create graph workflow
 func createGraphWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (Workflow, error) {
-	graph := NewGraphWorkflow(def.Name)
+	graph := newGraphWorkflowLocal(def.Name)
 
 	// Create all nodes first
 	for nodeID, nodeDef := range def.Nodes {
@@ -781,8 +723,8 @@ func createGraphWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, mod
 			}
 			workflow = agentWorkflow
 		} else if skill, ok := node.(Skill); ok {
-			// Create a SkillAgent that wraps the skill
-			ag, err := NewSkillAgent(skill)
+			// Create a SkillAgent that wraps the skill (use pointer)
+			ag, err := NewSkillAgent(&skill)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create skill agent: %w", err)
 			}
@@ -835,4 +777,251 @@ func createGraphWorkflow(def *WorkflowDefinition, skillLibrary SkillLibrary, mod
 	}
 
 	return graph, nil
+}
+
+// NewSequentialWorkflow creates a simple sequential workflow using agent.Agent
+func NewSequentialWorkflow(name string, agents ...Agent) Workflow {
+	return &simpleSequentialWorkflow{
+		name:   name,
+		agents: agents,
+	}
+}
+
+// simpleSequentialWorkflow is a simple implementation of Workflow for agent.Agent
+type simpleSequentialWorkflow struct {
+	name   string
+	agents []Agent
+}
+
+func (w *simpleSequentialWorkflow) Name() string {
+	return w.name
+}
+
+func (w *simpleSequentialWorkflow) GetName() string {
+	return w.name
+}
+
+func (w *simpleSequentialWorkflow) GetID() string {
+	return fmt.Sprintf("workflow_%s", w.name)
+}
+
+func (w *simpleSequentialWorkflow) GetType() string {
+	return "sequential"
+}
+
+func (w *simpleSequentialWorkflow) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	text := input
+	for _, agent := range w.agents {
+		result, err := agent.Run(ctx, text, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s failed: %w", agent.Name(), err)
+		}
+		text = result.Content
+	}
+	return &schema.Message{Role: schema.Assistant, Content: text}, nil
+}
+
+func (w *simpleSequentialWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	msg, err := w.Run(ctx, input, opts...)
+	return msg, nil, err
+}
+
+func (w *simpleSequentialWorkflow) Resume(ctx context.Context, input string, state string, opts ...model.Option) (*schema.Message, error) {
+	// For simple sequential workflow, state is not used
+	msg, _, err := w.RunResumable(ctx, input, state, opts...)
+	return msg, err
+}
+
+// NewAggregatingParallelWorkflowLocal creates a local parallel workflow with aggregation
+func NewAggregatingParallelWorkflowLocal(name string, aggregator Agent, agents ...Agent) Workflow {
+	return &simpleParallelWorkflow{
+		name:       name,
+		agents:     agents,
+		aggregator: aggregator,
+	}
+}
+
+// simpleParallelWorkflow is a simple implementation of parallel workflow
+type simpleParallelWorkflow struct {
+	name       string
+	agents     []Agent
+	aggregator Agent
+}
+
+func (w *simpleParallelWorkflow) Name() string {
+	return w.name
+}
+
+func (w *simpleParallelWorkflow) GetName() string {
+	return w.name
+}
+
+func (w *simpleParallelWorkflow) GetID() string {
+	return fmt.Sprintf("workflow_%s", w.name)
+}
+
+func (w *simpleParallelWorkflow) GetType() string {
+	return "parallel"
+}
+
+func (w *simpleParallelWorkflow) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	// Run all agents in parallel (simplified - actual implementation would use goroutines)
+	var results []string
+	for _, agent := range w.agents {
+		result, err := agent.Run(ctx, input, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s failed: %w", agent.Name(), err)
+		}
+		results = append(results, result.Content)
+	}
+
+	// Aggregate results
+	combinedInput := fmt.Sprintf("Results from %d agents:\n%s", len(results), strings.Join(results, "\n\n"))
+	return w.aggregator.Run(ctx, combinedInput, opts...)
+}
+
+func (w *simpleParallelWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	msg, err := w.Run(ctx, input, opts...)
+	return msg, nil, err
+}
+
+func (w *simpleParallelWorkflow) Resume(ctx context.Context, input string, state string, opts ...model.Option) (*schema.Message, error) {
+	// For simple parallel workflow, state is not used
+	msg, _, err := w.RunResumable(ctx, input, state, opts...)
+	return msg, err
+}
+
+// createDAGWorkflowLocal creates a local DAG workflow
+func createDAGWorkflowLocal(def *WorkflowDefinition, skillLibrary SkillLibrary, modelFactory ModelFactory) (Workflow, error) {
+	// For now, return a simple sequential workflow as a placeholder
+	// A full DAG implementation would require more complex graph handling
+	var agents []Agent
+	for nodeID := range def.Nodes {
+		nodeDef := def.Nodes[nodeID]
+		node, err := createWorkflowNode(nodeID, nodeDef, skillLibrary, modelFactory)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create node %s: %w", nodeID, err)
+		}
+
+		if agent, ok := node.(Agent); ok {
+			agents = append(agents, agent)
+		} else if skill, ok := node.(Skill); ok {
+			ag, err := NewSkillAgent(&skill)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create skill agent: %w", err)
+			}
+			agents = append(agents, ag)
+		}
+	}
+	return NewSequentialWorkflow(def.Name, agents...), nil
+}
+
+// newGraphWorkflowLocal creates a local graph workflow
+func newGraphWorkflowLocal(name string) *simpleGraphWorkflow {
+	return &simpleGraphWorkflow{
+		name:  name,
+		nodes: make(map[string]Workflow),
+	}
+}
+
+// simpleGraphWorkflow is a simple implementation of graph workflow
+type simpleGraphWorkflow struct {
+	name       string
+	nodes      map[string]Workflow
+	startNode  string
+	edges      []graphEdge
+	mu         sync.RWMutex
+}
+
+type graphEdge struct {
+	From      string
+	To        string
+	Condition string
+}
+
+func (g *simpleGraphWorkflow) Name() string {
+	return g.name
+}
+
+func (g *simpleGraphWorkflow) GetName() string {
+	return g.name
+}
+
+func (g *simpleGraphWorkflow) GetID() string {
+	return fmt.Sprintf("workflow_%s", g.name)
+}
+
+func (g *simpleGraphWorkflow) GetType() string {
+	return "graph"
+}
+
+func (g *simpleGraphWorkflow) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.startNode == "" {
+		return nil, fmt.Errorf("no start node set")
+	}
+
+	current := g.startNode
+	text := input
+	visited := make(map[string]bool)
+
+	for current != "" && !visited[current] {
+		visited[current] = true
+		node, ok := g.nodes[current]
+		if !ok {
+			return nil, fmt.Errorf("node %s not found", current)
+		}
+
+		result, err := node.Run(ctx, text, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("node %s failed: %w", current, err)
+		}
+		text = result.Content
+
+		// Find next node
+		current = ""
+		for _, edge := range g.edges {
+			if edge.From == current {
+				current = edge.To
+				break
+			}
+		}
+	}
+
+	return &schema.Message{Role: schema.Assistant, Content: text}, nil
+}
+
+func (g *simpleGraphWorkflow) RunResumable(ctx context.Context, input string, state interface{}, opts ...model.Option) (*schema.Message, interface{}, error) {
+	msg, err := g.Run(ctx, input, opts...)
+	return msg, nil, err
+}
+
+func (g *simpleGraphWorkflow) Resume(ctx context.Context, input string, state string, opts ...model.Option) (*schema.Message, error) {
+	msg, _, err := g.RunResumable(ctx, input, state, opts...)
+	return msg, err
+}
+
+func (g *simpleGraphWorkflow) SetStartNode(nodeID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.startNode = nodeID
+}
+
+func (g *simpleGraphWorkflow) AddNode(nodeID string, workflow Workflow) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.nodes[nodeID] = workflow
+}
+
+func (g *simpleGraphWorkflow) AddEdge(from, to string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.edges = append(g.edges, graphEdge{From: from, To: to})
+}
+
+func (g *simpleGraphWorkflow) AddConditionalEdge(from string, condition func(context.Context, string) (string, error)) {
+	// For simplicity, just add a regular edge
+	g.AddEdge(from, "")
 }

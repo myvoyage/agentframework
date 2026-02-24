@@ -51,8 +51,8 @@ type SWEAgent struct {
 	tools          map[string]tool.InvokableTool
 	gitClient      *GitClient
 	codeAnalyzer   *CodeAnalyzer
-	stateMachine   *StateMachine
-	memoryManager  *MemoryManager
+	stateMachine   StateMachine
+	memoryManager  MemoryManager
 	thread         *Thread
 	repoPath       string
 	mu             sync.RWMutex
@@ -151,13 +151,13 @@ func (a *SWEAgent) Name() string {
 // Run 执行软件工程任务
 func (a *SWEAgent) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
 	// 转换到运行状态
-	if err := a.stateMachine.Transition(ctx, StateRunning, "Starting SWE task", nil); err != nil {
+	if err := a.stateMachine.Transition(ctx, string(StateRunning), "Starting SWE task", nil); err != nil {
 		return nil, err
 	}
 
 	defer func() {
-		if a.stateMachine.Current() == StateRunning {
-			_ = a.stateMachine.Transition(context.Background(), StateFinished, "Task completed", nil)
+		if string(a.stateMachine.Current()) == string(StateRunning) {
+			_ = a.stateMachine.Transition(context.Background(), string(StateFinished), "Task completed", nil)
 		}
 	}()
 
@@ -171,7 +171,7 @@ func (a *SWEAgent) Run(ctx context.Context, input string, opts ...model.Option) 
 
 	resp, err := a.model.Generate(ctx, messages, opts...)
 	if err != nil {
-		_ = a.stateMachine.Transition(ctx, StateError, "Model generation failed", map[string]any{
+		_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation failed", map[string]any{
 			"error": err.Error(),
 		})
 		return nil, err
@@ -181,7 +181,7 @@ func (a *SWEAgent) Run(ctx context.Context, input string, opts ...model.Option) 
 	if len(resp.ToolCalls) > 0 && len(a.tools) > 0 {
 		toolMsgs, err := a.runTools(ctx, resp)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Tool execution failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Tool execution failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -191,7 +191,7 @@ func (a *SWEAgent) Run(ctx context.Context, input string, opts ...model.Option) 
 
 		resp, err = a.model.Generate(ctx, messages, opts...)
 		if err != nil {
-			_ = a.stateMachine.Transition(ctx, StateError, "Model generation after tools failed", map[string]any{
+			_ = a.stateMachine.Transition(ctx, string(StateError), "Model generation after tools failed", map[string]any{
 				"error": err.Error(),
 			})
 			return nil, err
@@ -202,7 +202,7 @@ func (a *SWEAgent) Run(ctx context.Context, input string, opts ...model.Option) 
 	a.thread.Messages = append(a.thread.Messages, userMsg, resp)
 	a.thread.Messages = a.memoryManager.LimitHistory(a.thread.Messages)
 
-	_ = a.stateMachine.Transition(ctx, StateFinished, "Task completed successfully", map[string]any{
+	_ = a.stateMachine.Transition(ctx, string(StateFinished), "Task completed successfully", map[string]any{
 		"response_length": len(resp.Content),
 	})
 

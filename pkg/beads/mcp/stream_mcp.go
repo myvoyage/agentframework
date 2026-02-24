@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"AgentFramework/agent"
-	"AgentFramework/pkg/beads/context"
+	beadscontext "AgentFramework/pkg/beads/context"
 	"AgentFramework/pkg/beads/stream"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -238,10 +238,17 @@ func (t *StreamMCPTools) RegisterTools(s *server.MCPServer) {
 }
 
 func (t *StreamMCPTools) handleCreatePipeline(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	pipelineID, _ := request.Params.Arguments["pipeline_id"].(string)
-	processorsInterface, _ := request.Params.Arguments["processors"].(interface{})
-	processorsArray, _ := processorsInterface.([]interface{})
+	var params struct {
+		PipelineID  string        `json:"pipeline_id"`
+		Processors  []interface{} `json:"processors"`
+		Workers     *float64      `json:"workers,omitempty"`
+		BufferSize  *float64      `json:"buffer_size,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
+	processorsArray := params.Processors
 	processors, err := t.parseProcessors(processorsArray)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to parse processors: %v", err)), nil
@@ -249,36 +256,46 @@ func (t *StreamMCPTools) handleCreatePipeline(ctx context.Context, request mcp.C
 
 	opts := []stream.PipelineOption{}
 
-	if workers, ok := request.Params.Arguments["workers"].(float64); ok {
-		opts = append(opts, stream.WithWorkers(int(workers)))
+	if params.Workers != nil {
+		opts = append(opts, stream.WithWorkers(int(*params.Workers)))
 	}
 
-	if bufferSize, ok := request.Params.Arguments["buffer_size"].(float64); ok {
-		opts = append(opts, stream.WithBufferSize(int(bufferSize)))
+	if params.BufferSize != nil {
+		opts = append(opts, stream.WithBufferSize(int(*params.BufferSize)))
 	}
 
-	if err := t.agent.CreatePipeline(ctx, pipelineID, processors, opts...); err != nil {
+	if err := t.agent.CreatePipeline(ctx, params.PipelineID, processors, opts...); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to create pipeline: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully created pipeline %s", pipelineID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully created pipeline %s", params.PipelineID)), nil
 }
 
 func (t *StreamMCPTools) handleProcessData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	pipelineID, _ := request.Params.Arguments["pipeline_id"].(string)
-	data, _ := request.Params.Arguments["data"].(interface{})
+	var params struct {
+		PipelineID string      `json:"pipeline_id"`
+		Data       interface{} `json:"data"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.ProcessData(ctx, pipelineID, data); err != nil {
+	if err := t.agent.ProcessData(ctx, params.PipelineID, params.Data); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to process data: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully processed data through pipeline %s", pipelineID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully processed data through pipeline %s", params.PipelineID)), nil
 }
 
 func (t *StreamMCPTools) handleGetPipelineMetrics(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	pipelineID, _ := request.Params.Arguments["pipeline_id"].(string)
+	var params struct {
+		PipelineID string `json:"pipeline_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	metrics, err := t.agent.GetPipelineMetrics(ctx, pipelineID)
+	metrics, err := t.agent.GetPipelineMetrics(ctx, params.PipelineID)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to get pipeline metrics: %v", err)), nil
 	}
@@ -312,28 +329,39 @@ func (t *StreamMCPTools) handleListPipelines(ctx context.Context, request mcp.Ca
 }
 
 func (t *StreamMCPTools) handleDeletePipeline(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	pipelineID, _ := request.Params.Arguments["pipeline_id"].(string)
+	var params struct {
+		PipelineID string `json:"pipeline_id"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
+	}
 
-	if err := t.agent.DeletePipeline(ctx, pipelineID); err != nil {
+	if err := t.agent.DeletePipeline(ctx, params.PipelineID); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to delete pipeline: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully deleted pipeline %s", pipelineID)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully deleted pipeline %s", params.PipelineID)), nil
 }
 
 func (t *StreamMCPTools) handlePublishEvent(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	eventType, _ := request.Params.Arguments["event_type"].(string)
-	data, _ := request.Params.Arguments["data"].(map[string]interface{})
-
-	source := "unknown"
-	if src, ok := request.Params.Arguments["source"].(string); ok {
-		source = src
+	var params struct {
+		EventType string                 `json:"event_type"`
+		Data      map[string]interface{} `json:"data"`
+		Source    string                 `json:"source,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	event := agent.Event{
-		Type:      eventType,
+	source := params.Source
+	if source == "" {
+		source = "unknown"
+	}
+
+	event := agent.RealTimeEvent{
+		Type:      params.EventType,
 		Timestamp: time.Now(),
-		Data:      data,
+		Data:      params.Data,
 		Source:    source,
 	}
 
@@ -341,21 +369,28 @@ func (t *StreamMCPTools) handlePublishEvent(ctx context.Context, request mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to publish event: %v", err)), nil
 	}
 
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully published event %s", eventType)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("Successfully published event %s", params.EventType)), nil
 }
 
 func (t *StreamMCPTools) handleQueryRealTimeData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filter, _ := request.Params.Arguments["filter"].(string)
-	limit := 0
-	if lim, ok := request.Params.Arguments["limit"].(float64); ok {
-		limit = int(lim)
+	var params struct {
+		Filter string  `json:"filter,omitempty"`
+		Limit  float64 `json:"limit,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	query := &context.Query{
+	limit := 0
+	if params.Limit > 0 {
+		limit = int(params.Limit)
+	}
+
+	query := &beadscontext.Query{
 		Limit: limit,
 	}
 
-	if filter != "" {
+	if params.Filter != "" {
 		// Simple filter implementation (can be enhanced with expression parsing)
 		query.Filter = func(data interface{}) bool {
 			return true // Placeholder for actual filter implementation
@@ -376,13 +411,20 @@ func (t *StreamMCPTools) handleQueryRealTimeData(ctx context.Context, request mc
 }
 
 func (t *StreamMCPTools) handleSearchRealTimeData(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	searchTerm, _ := request.Params.Arguments["search_term"].(string)
-	limit := 0
-	if lim, ok := request.Params.Arguments["limit"].(float64); ok {
-		limit = int(lim)
+	var params struct {
+		SearchTerm string  `json:"search_term"`
+		Limit      float64 `json:"limit,omitempty"`
+	}
+	if err := unmarshalArgs(request.Params.Arguments, &params); err != nil {
+		return nil, err
 	}
 
-	results, err := t.agent.SearchRealTimeData(ctx, searchTerm, limit)
+	limit := 0
+	if params.Limit > 0 {
+		limit = int(params.Limit)
+	}
+
+	results, err := t.agent.SearchRealTimeData(ctx, params.SearchTerm, limit)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("Failed to search real-time data: %v", err)), nil
 	}
