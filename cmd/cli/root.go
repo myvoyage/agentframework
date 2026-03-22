@@ -1,4 +1,4 @@
-// Agent Framework - CLI Entry Point
+// Agent Framework - CLI Package
 // Copyright (C) 2025 Agent Framework Contributors
 //
 // This program is free software: you can redistribute it and/or modify
@@ -7,10 +7,8 @@
 // (at your option) any later version.
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//
-// 重构后的 CLI - 缩短命令名，优化结构，添加 TUI 支持
 
-package cmdcli
+package cli
 
 import (
 	"context"
@@ -25,7 +23,6 @@ import (
 
 	"AgentFramework/core"
 	"AgentFramework/agent"
-	"AgentFramework/pkg/local"
 )
 
 var (
@@ -38,8 +35,7 @@ var (
 	_WATCH       bool
 
 	// Global application instance
-	app   *core.Application
-	store local.Store
+	app *core.Application
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -48,19 +44,36 @@ var rootCmd = &cobra.Command{
 	Short: "AgentFramework - 高性能企业级 AI 代理框架",
 	Long: `AgentFramework 是一个高性能、企业级的 AI 代理框架，为构建智能应用提供强大的基础设施。
 
-支持多种 Agent 类型、工作流编排、技能系统和安全沙箱。
+支持多种 Agent 类型、工作流编排、技能系统、异步任务、调度器、消息通道等完整功能。
 
 快速开始:
-  af tui              启动交互式 TUI 界面
-  af agent list       列出可用 agents
-  af agent chat       与 agent 对话
-  af workflow list    管理工作流
-  af skill list       管理技能`,
-	Version:      "1.2.0",
+  af                      启动桌面 GUI (默认)
+  af -tui / af --tui      启动交互式 TUI 界面
+  af -cli / af --cli      进入 CLI 模式
+
+核心命令:
+  af agent list           列出可用 agents
+  af agent chat           与 agent 对话
+  af agent run <id> <任务> 运行指定 agent
+  af workflow list        管理工作流
+  af skill list           管理技能
+  af config get           查看配置
+  af file list            文件操作
+
+高级命令:
+  af task list            异步任务管理
+  af schedule list        调度任务管理
+  af channel list         消息通道管理
+  af plugin list          插件管理
+  af monitor status       系统监控
+  af token stats          Token 压缩统计
+  af host info            Host 实例信息`,
+	Version:      "2.0.0",
 	SilenceUsage: true,
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
+// This is the main entry point for CLI mode
 func Execute() error {
 	// Persistent flags
 	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "配置文件路径")
@@ -70,13 +83,21 @@ func Execute() error {
 	rootCmd.PersistentFlags().DurationVar(&_TIMEOUT, "timeout", 30*time.Second, "操作超时时间")
 	rootCmd.PersistentFlags().BoolVar(&_WATCH, "watch", false, "监视模式（持续更新）")
 
-	// Add subcommands
+	// Add subcommands - Core
 	addWorkflowCommands()
 	addSkillCommands()
 	addConfigCommands()
 	addFileCommands()
 	addAgentCommands()
-	addTUICommands()
+
+	// Add subcommands - Advanced
+	addTaskCommands()
+	addScheduleCommands()
+	addChannelCommands()
+	addPluginCommands()
+	addMonitorCommands()
+	addTokenCommands()
+	addHostCommands()
 
 	// Execute command
 	return rootCmd.Execute()
@@ -92,18 +113,6 @@ func initApplication() error {
 		hostCfg, err = agent.LoadHostConfigFile(configFile)
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
-		}
-	} else {
-		// Try to load from default locations
-		// 1. Local store
-		// 2. ~/.agentframework/config.yaml
-		// 3. Use defaults
-		store, err = local.GetDefaultStore()
-		if err == nil {
-			var savedCfg agent.HostConfig
-			if err := store.GetConfig("host", &savedCfg); err == nil {
-				hostCfg = &savedCfg
-			}
 		}
 	}
 
@@ -170,9 +179,6 @@ func postRun(cmd *cobra.Command, args []string) {
 	if app != nil {
 		app.Shutdown(rootContext())
 	}
-	if store != nil {
-		store.Close()
-	}
 }
 
 // rootContext returns the root context for operations
@@ -181,18 +187,6 @@ func rootContext() context.Context {
 		return app.GetContext()
 	}
 	return context.Background()
-}
-
-// getStore returns the local store, initializing if necessary
-func getStore() (local.Store, error) {
-	if store == nil {
-		var err error
-		store, err = local.GetDefaultStore()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get store: %w", err)
-		}
-	}
-	return store, nil
 }
 
 // init sets up the CLI before execution
@@ -205,18 +199,41 @@ func init() {
 	// Set global hooks
 	rootCmd.PersistentPreRunE = preRunE
 	rootCmd.PersistentPostRun = postRun
+
+	// Add utility commands
+	addUtilityCommands()
 }
 
-func init() {
-	// Add TUI command (high priority)
+// addUtilityCommands adds utility commands like version, init, completion
+func addUtilityCommands() {
+	// Add version command
 	rootCmd.AddCommand(&cobra.Command{
-		Use:   "tui",
-		Short: "启动交互式 TUI 界面",
-		Long:  `启动基于 Bubble Tea 的交互式终端用户界面，提供可视化的 Agent、工作流和技能管理。`,
+		Use:   "version",
+		Short: "显示版本信息",
+		Long:  `显示 AgentFramework 的版本信息`,
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Printf("AgentFramework CLI v%s\n", rootCmd.Version)
+			fmt.Printf("Build: %s\n", getBuildInfo())
+			fmt.Printf("Go Version: %s\n", runtime.Version())
+			fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+
+			if verbose {
+				fmt.Println("\n组件信息:")
+				if app != nil {
+					fmt.Printf("  Agents: %d\n", len(app.GetHost().ListAgents()))
+				}
+			}
+		},
+	})
+
+	// Add config init command
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "init",
+		Short: "初始化配置",
+		Long:  `初始化 AgentFramework 配置，创建默认配置文件和目录结构。`,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// Import and run TUI
-			return runTUI()
+			return initConfig()
 		},
 	})
 
@@ -261,52 +278,12 @@ PowerShell:
 			return err
 		},
 	})
-
-	// Add version command
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "显示版本信息",
-		Long:  `显示 AgentFramework 的版本信息`,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("AgentFramework CLI v%s\n", rootCmd.Version)
-			fmt.Printf("Build: %s\n", getBuildInfo())
-			fmt.Printf("Go Version: %s\n", runtime.Version())
-			fmt.Printf("Platform: %s/%s\n", runtime.GOOS, runtime.GOARCH)
-
-			if verbose {
-				fmt.Println("\n组件信息:")
-				if app != nil {
-					fmt.Printf("  Agents: %d\n", len(app.GetHost().ListAgents()))
-				}
-			}
-		},
-	})
-
-	// Add config init command
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "init",
-		Short: "初始化配置",
-		Long:  `初始化 AgentFramework 配置，创建默认配置文件和目录结构。`,
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return initConfig()
-		},
-	})
 }
 
 // getBuildInfo returns build information
 func getBuildInfo() string {
 	// Can be replaced with actual build info using ldflags
 	return "devel"
-}
-
-// runTUI 启动 TUI 界面
-func runTUI() error {
-	// This will be implemented by importing the TUI package
-	// For now, we'll return an error indicating the feature
-	return fmt.Errorf("TUI feature requires compiling with the tui build tag\n" +
-		"Run: go build -tags=tui ./cmd/tui\n" +
-		"Or use: af tui in standalone mode")
 }
 
 // initConfig 初始化配置
@@ -354,7 +331,7 @@ func initConfig() error {
 	fmt.Printf("\n使用方法:\n")
 	fmt.Printf("  af config edit      # 编辑配置\n")
 	fmt.Printf("  af agent list       # 列出 agents\n")
-	fmt.Printf("  af tui              # 启动 TUI 界面\n")
+	fmt.Printf("  af -tui             # 启动 TUI 界面\n")
 
 	return nil
 }
@@ -373,10 +350,4 @@ func getDefaultDataDir() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".agentframework"), nil
-}
-
-// addTUICommands adds TUI-related commands
-func addTUICommands() {
-	// TUI commands can be added here in the future
-	// For example: tui-agent, tui-workflow, etc.
 }

@@ -529,6 +529,11 @@ func (hm *HostManager) ListAgents(appName string) []string {
 	return host.ListAgents()
 }
 
+// MonitorManager 返回监控管理器（始终非 nil）
+func (h *Host) MonitorManager() *MonitorManager {
+	return h.monitorMgr
+}
+
 // ===== Scheduler 和 Heartbeat Getter 方法 =====
 
 // Scheduler 返回调度器（可能为 nil）

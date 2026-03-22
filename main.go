@@ -5,6 +5,8 @@
 // it under the terms of the GNU Affero General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
+//
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 package main
 
@@ -17,7 +19,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 
-	cli "AgentFramework/cmd/cli"
+	"AgentFramework/cmd/cli"
+	cmdtui "AgentFramework/cmd/tui"
+	"AgentFramework/agent"
 )
 
 //go:embed all:frontend/dist
@@ -39,6 +43,9 @@ func main() {
 	// Determine run mode based on command-line arguments
 	mode := detectRunMode()
 
+	// Print startup banner
+	printBanner(mode)
+
 	switch mode {
 	case ModeCLI:
 		// Run CLI mode
@@ -53,7 +60,7 @@ func main() {
 			os.Exit(1)
 		}
 	case ModeDesktop:
-		// Run desktop mode
+		// Run desktop mode (Wails UI)
 		if err := runDesktopMode(); err != nil {
 			fmt.Fprintf(os.Stderr, "Desktop error: %v\n", err)
 			os.Exit(1)
@@ -64,28 +71,71 @@ func main() {
 	}
 }
 
+// printBanner prints the startup banner with mode information
+func printBanner(mode RunMode) {
+	// Only print banner for CLI and TUI modes
+	// Desktop mode has its own UI
+	if mode == ModeDesktop {
+		return
+	}
+
+	modeName := ""
+	switch mode {
+	case ModeCLI:
+		modeName = "CLI"
+	case ModeTUI:
+		modeName = "TUI (Terminal UI)"
+	default:
+		modeName = "Unknown"
+	}
+
+	fmt.Println("╔════════════════════════════════════════════════════════════╗")
+	fmt.Println("║        AgentFramework - Enterprise AI Agent Framework     ║")
+	fmt.Println("║                      Version 2.0.0                        ║")
+	fmt.Printf("║           Running Mode: %-30s        ║\n", modeName)
+	fmt.Println("╚════════════════════════════════════════════════════════════╝")
+	fmt.Println()
+}
+
 // detectRunMode determines whether to run in CLI, TUI, or desktop mode
+// 支持的启动方式:
+//   无参数             -> 默认 Wails UI (桌面GUI)
+//   -tui, --tui       -> TUI (终端用户界面)
+//   -cli, --cli       -> CLI (命令行模式)
+//   任何其他参数      -> 自动检测为 CLI 模式
 func detectRunMode() RunMode {
 	// Check for CLI-specific flags or subcommands
 	args := os.Args[1:]
 
-	// No arguments - default to desktop mode
+	// No arguments - default to desktop mode (Wails UI)
 	if len(args) == 0 {
 		return ModeDesktop
 	}
 
-	// Check for TUI flag
+	// Check for explicit mode flags
 	for _, arg := range args {
-		if arg == "--tui" || arg == "-t" {
+		switch arg {
+		case "-tui", "--tui":
 			return ModeTUI
+		case "-cli", "--cli":
+			return ModeCLI
 		}
 	}
 
-	// Check for CLI flags or subcommands
+	// Check for CLI-specific flags or subcommands
 	for _, arg := range args {
 		switch arg {
 		case "-h", "--help", "help", "-v", "--version", "version",
-			"completion", "workflow", "skill", "enhanced-skill", "config", "file", "agent",
+			"completion", "init",
+			// Core commands
+			"workflow", "skill", "config", "file", "agent",
+			// Advanced commands
+			"task", "schedule", "scheduler", "sched",
+			"channel", "plugin", "monitor",
+			"token", "host",
+			// Legacy
+			"enhanced-skill",
+			// Global flags
 			"-c", "--config", "-m", "--model", "-o", "--output":
 			return ModeCLI
 		}
@@ -108,9 +158,24 @@ func runCLIMode() error {
 
 // runTUIMode runs the application in TUI (Terminal UI) mode
 func runTUIMode() error {
-	// Import and run TUI
-	// Note: We use a build tag approach to avoid circular dependencies
-	return runTUI()
+	// Create default config
+	defaultHostConfig := &agent.HostConfig{
+		Models: map[string]agent.ModelConfig{
+			"default": {
+				Type:  "ollama",
+				Model: "llama3",
+			},
+		},
+		SkillSystemDir: ".skills",
+	}
+
+	modelFactory := agent.NewModelFactoryWithConfig(agent.ModelConfig{
+		Type:  "ollama",
+		Model: "llama3",
+	})
+
+	// Run TUI using the tui package
+	return cmdtui.Run(defaultHostConfig, modelFactory)
 }
 
 // runDesktopMode runs the application in desktop mode
