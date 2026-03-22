@@ -6,6 +6,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -237,8 +238,19 @@ JSON 格式示例:
 
 			jsonStr := args[0]
 
-			// 简单解析：尝试提取 name 和 description
-			id, err := wfManager.ImportWorkflowFromJSON(ctx, jsonStr)
+			// 解析 JSON 提取 name, description, definition
+			var m map[string]interface{}
+			if err := json.Unmarshal([]byte(jsonStr), &m); err != nil {
+				return fmt.Errorf("invalid JSON: %w", err)
+			}
+			name, _ := m["name"].(string)
+			if name == "" {
+				name = "imported-workflow"
+			}
+			description, _ := m["description"].(string)
+			definition, _ := m["definition"].(string)
+
+			id, err := wfManager.CreateWorkflow(ctx, name, description, definition)
 			if err != nil {
 				return fmt.Errorf("failed to import workflow: %w", err)
 			}

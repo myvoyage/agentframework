@@ -56,6 +56,7 @@ ECHO ║    agent select ^<id^>       选择 agent                 ║
 ECHO ║    workflow list           列出工作流                 ║
 ECHO ║    skill list              列出技能                   ║
 ECHO ║    config get              查看配置                   ║
+ECHO ║    gateway --port 18789    启动 OpenClaw 网关        ║
 ECHO ╚════════════════════════════════════════════════════════════╝
 
 REM 创建便捷的启动脚本

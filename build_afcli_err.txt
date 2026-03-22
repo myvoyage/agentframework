@@ -1,0 +1,8 @@
+﻿go : # AgentFramework/agent
+所在位置 行:1 字符: 1
++ go build -o build/afcli.exe ./cmd/afcli/ 2>&1 | Out-File -FilePath bu ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (# AgentFramework/agent:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+agent\skills_disclosure.go:301:2: declared and not used: metadata

@@ -33,6 +33,9 @@ var (
 	verbose      bool
 	_TIMEOUT     time.Duration
 	_WATCH       bool
+	_DEV         bool
+	_PROFILE     string
+	_NO_COLOR    bool
 
 	// Global application instance
 	app *core.Application
@@ -76,12 +79,21 @@ var rootCmd = &cobra.Command{
 // This is the main entry point for CLI mode
 func Execute() error {
 	// Persistent flags
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "配置文件路径")
+	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "C", "", "配置文件路径")
 	rootCmd.PersistentFlags().StringVarP(&modelName, "model", "m", "", "指定模型名称")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "table", "输出格式 (table/json/yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "详细输出")
 	rootCmd.PersistentFlags().DurationVar(&_TIMEOUT, "timeout", 30*time.Second, "操作超时时间")
 	rootCmd.PersistentFlags().BoolVar(&_WATCH, "watch", false, "监视模式（持续更新）")
+	rootCmd.PersistentFlags().BoolVar(&_DEV, "dev", false, "开发模式")
+	rootCmd.PersistentFlags().StringVar(&_PROFILE, "profile", "default", "配置文件名 (default/production/development)")
+	rootCmd.PersistentFlags().BoolVar(&_NO_COLOR, "no-color", false, "禁用颜色输出")
+
+	// Add subcommands - Setup
+	addSetupCommands()
+
+	// Add subcommands - System
+	addDoctorCommands()
 
 	// Add subcommands - Core
 	addWorkflowCommands()
@@ -89,6 +101,7 @@ func Execute() error {
 	addConfigCommands()
 	addFileCommands()
 	addAgentCommands()
+	addGatewayCommands()
 
 	// Add subcommands - Advanced
 	addTaskCommands()

@@ -87,8 +87,8 @@ func addTaskCommands() {
 			fmt.Printf("ID:         %s\n", task.ID())
 			fmt.Printf("Status:     %s\n", task.Status())
 			fmt.Printf("Created At: %v\n", task.CreatedAt())
-			if task.Error() != nil {
-				fmt.Printf("Error:      %v\n", task.Error())
+			if _, taskErr := task.Result(); taskErr != nil {
+				fmt.Printf("Error:      %v\n", taskErr)
 			}
 			fmt.Println("────────────────────────────────────────────────────────────")
 			return nil
@@ -160,7 +160,7 @@ func addTaskCommands() {
 			fmt.Printf("Running:         %d\n", stats.RunningTasks)
 			fmt.Printf("Completed:       %d\n", stats.CompletedTasks)
 			fmt.Printf("Failed:          %d\n", stats.FailedTasks)
-			fmt.Printf("Cancelled:       %d\n", stats.CancelledTasks)
+			fmt.Printf("Cancelled:       %d\n", stats.CanceledTasks)
 			fmt.Println("────────────────────────────────────────────────────────────")
 			return nil
 		},

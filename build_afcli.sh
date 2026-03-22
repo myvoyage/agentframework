@@ -57,6 +57,7 @@ echo "   agent select <id>        选择 agent"
 echo "   workflow list           列出工作流"
 echo "   skill list              列出技能"
 echo "   config get              查看配置"
+echo "   gateway --port 18789    启动 OpenClaw 网关"
 echo ""
 
 # 创建便捷的启动脚本

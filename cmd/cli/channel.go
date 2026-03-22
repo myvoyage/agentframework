@@ -45,8 +45,12 @@ func addChannelCommands() {
 			fmt.Println("Message Channels:")
 			fmt.Println("────────────────────────────────────────────────────────────")
 			for _, ch := range channels {
-				fmt.Printf("  %-20s  type=%-15s  status=%s\n",
-					ch.ID(), ch.Type(), ch.Status())
+		statusStr := "stopped"
+			if ch.IsRunning() {
+				statusStr = "running"
+			}
+			fmt.Printf("  %-20s  type=%-15s  status=%s\n",
+				ch.Name(), ch.Type(), statusStr)
 			}
 			fmt.Printf("Total: %d channel(s)\n", len(channels))
 			return nil
@@ -71,11 +75,15 @@ func addChannelCommands() {
 				return fmt.Errorf("channel '%s' not found: %w", args[0], err)
 			}
 
+			chStatusStr := "stopped"
+			if ch.IsRunning() {
+				chStatusStr = "running"
+			}
 			fmt.Println("Channel Information:")
 			fmt.Println("────────────────────────────────────────────────────────────")
-			fmt.Printf("ID:     %s\n", ch.ID())
+			fmt.Printf("Name:   %s\n", ch.Name())
 			fmt.Printf("Type:   %s\n", ch.Type())
-			fmt.Printf("Status: %s\n", ch.Status())
+			fmt.Printf("Status: %s\n", chStatusStr)
 			fmt.Println("────────────────────────────────────────────────────────────")
 			return nil
 		},
@@ -133,6 +141,104 @@ func addChannelCommands() {
 		},
 	}
 	channelCmd.AddCommand(msgCfgCmd)
+
+	// ── add ───────────────────────────────────────────────────────────────
+	addCmd := &cobra.Command{
+		Use:   "add [channel-type]",
+		Short: "添加消息渠道",
+		Long: `添加一个新的消息渠道配置。
+
+支持的渠道类型:
+  telegram   - Telegram Bot
+  lark      - 飞书 (Feishu)
+  qq        - QQ/QQ 频道
+  discord   - Discord
+  slack     - Slack
+  wechat    - 企业微信
+
+示例：
+  af channel add telegram --name "My Bot" --token $TOKEN
+  af channel add lark --app-id $APP_ID --app-secret $SECRET`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			channelType := args[0]
+			fmt.Printf("[Channel] Adding %s channel...\n", channelType)
+
+			// TODO: Implement channel addition logic
+			fmt.Println("⚠ 渠道添加功能开发中")
+			fmt.Println("  请手动编辑配置文件添加渠道配置")
+			return nil
+		},
+	}
+	channelCmd.AddCommand(addCmd)
+
+	// ── delete ────────────────────────────────────────────────────────────
+	deleteCmd := &cobra.Command{
+		Use:   "delete [channel-id]",
+		Short: "删除消息渠道",
+		Long:  `删除指定的消息渠道配置。`,
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			channelID := args[0]
+			fmt.Printf("[Channel] Deleting channel: %s\n", channelID)
+
+			// TODO: Implement channel deletion logic
+			fmt.Println("⚠ 渠道删除功能开发中")
+			fmt.Println("  请手动编辑配置文件删除渠道配置")
+			return nil
+		},
+	}
+	channelCmd.AddCommand(deleteCmd)
+
+	// ── probe ────────────────────────────────────────────────────────────
+	probeCmd := &cobra.Command{
+		Use:   "probe",
+		Short: "探测渠道连接状态",
+		Long: `探测所有已配置消息渠道的连接状态。`,
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Println("[Channel] Probing connection status...")
+			fmt.Println()
+
+			channelMgr := app.GetHost().ChannelManager()
+			if channelMgr == nil {
+				fmt.Println("⚠ 渠道管理器未配置")
+				return nil
+			}
+
+			channels := channelMgr.ListChannels()
+			if len(channels) == 0 {
+				fmt.Println("ℹ 未配置任何渠道")
+				return nil
+			}
+
+			fmt.Println("Connection Status:")
+			fmt.Println("────────────────────────────────────────────────────────────")
+			for _, ch := range channels {
+				status := "✗ 未知"
+				if ch.IsRunning() {
+					status = "✓ 在线"
+				} else {
+					status = "✗ 离线"
+				}
+				fmt.Printf("  %-20s  type=%-15s  status=%s\n",
+					ch.Name(), ch.Type(), status)
+			}
+			fmt.Println("────────────────────────────────────────────────────────────")
+
+			// Summary
+			online := 0
+			for _, ch := range channels {
+				if ch.IsRunning() {
+					online++
+				}
+			}
+			fmt.Printf("总计: %d/%d 在线\n", online, len(channels))
+
+			return nil
+		},
+	}
+	channelCmd.AddCommand(probeCmd)
 
 	rootCmd.AddCommand(channelCmd)
 }

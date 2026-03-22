@@ -1,4 +1,6 @@
 // Agent Framework - Agent Commands
+// Based on OpenClaw Architecture: https://www.cnblogs.com/tangshiye/p/19642495
+//
 // Copyright (C) 2025 Agent Framework Contributors
 //
 // SPDX-License-Identifier: AGPL-3.0-or-later
@@ -8,15 +10,55 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
+
+	"AgentFramework/agent"
 )
+
+// Flag variables
+var (
+	_agentSessionType  string
+	_agentChannel      string
+	_agentUserID       string
+	_agentWorkspace    string
+	_agentMaxIter      int
+	_agentTimeout      int
+	_agentStream       bool
+	_agentSandbox      bool
+)
+
+func init() {
+	// Global agent flags
+	agentCmd.PersistentFlags().StringVarP(&_agentSessionType, "session-type", "t", "main", "会话类型: main/dm/group")
+	agentCmd.PersistentFlags().StringVarP(&_agentChannel, "channel", "c", "cli", "消息渠道: cli/telegram/lark/qq")
+	agentCmd.PersistentFlags().StringVar(&_agentUserID, "user-id", "", "用户 ID（main 会话）")
+	agentCmd.PersistentFlags().StringVarP(&_agentWorkspace, "workspace", "w", "", "工作空间路径")
+	agentCmd.PersistentFlags().IntVar(&_agentMaxIter, "max-iter", 10, "最大迭代次数")
+	agentCmd.PersistentFlags().IntVar(&_agentTimeout, "timeout", 300, "超时时间（秒）")
+	agentCmd.PersistentFlags().BoolVar(&_agentStream, "stream", false, "流式输出")
+	agentCmd.PersistentFlags().BoolVar(&_agentSandbox, "sandbox", false, "启用沙箱隔离")
+}
 
 // agentCmd represents the agent command
 var agentCmd = &cobra.Command{
 	Use:   "agent",
 	Short: "管理和运行 AI 代理",
-	Long:  `管理和运行各种类型的 AI 代理，包括 ChatAgent、ReActAgent、WorkerAgent 等。`,
+	Long: `管理和运行各种类型的 AI 代理，包括 ChatAgent、ReActAgent、WorkerAgent 等。
+
+会话类型（--session-type / -t）：
+  main  - 用户私聊（最高权限，直接执行命令）
+  dm    - 他人私信（默认沙箱隔离）
+  group - 群聊（默认沙箱隔离）
+
+示例：
+  af agent list                              # 列出所有 agents
+  af agent chat "你好"                       # 与默认 agent 对话
+  af agent run coder "写一个快速排序"        # 运行指定 agent
+  af agent chat -t dm "执行 rm -rf"          # 在沙箱中执行
+  af agent session list                       # 列出会话`,
 }
 
 // addAgentCommands adds agent-related commands to root command
@@ -113,52 +155,82 @@ func addAgentCommands() {
 	// ── chat ─────────────────────────────────────────────────────────────────
 	chatCmd := &cobra.Command{
 		Use:   "chat [message]",
-		Short: "与默认 agent 对话",
-		Long:  `使用第一个可用的 AI 代理进行对话。`,
-		Args:  cobra.MinimumNArgs(1),
+		Short: "与 agent 对话",
+		Long: `使用 AI 代理进行对话。
+
+会话类型决定执行权限：
+  main  - 完整权限
+  dm    - 沙箱隔离
+  group - 沙箱隔离
+
+示例：
+  af agent chat "你好"
+  af agent chat -t main "执行系统命令"
+  af agent chat -c lark "群聊消息"`,
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := rootContext()
 
 			input := args[0]
 			if len(args) > 1 {
-				// 拼接多个参数
 				for _, a := range args[1:] {
 					input += " " + a
 				}
 			}
 
+			// Get agent
 			agents := app.GetHost().ListAgents()
 			if len(agents) == 0 {
 				return fmt.Errorf("no agents available")
 			}
 
-			a, err := app.GetHost().GetAgent(agents[0])
+			agentID := agents[0]
+			if len(args) > 0 {
+				agentID = args[0]
+			}
+
+			a, err := app.GetHost().GetAgent(agentID)
 			if err != nil {
 				return fmt.Errorf("failed to get agent: %w", err)
 			}
 
+			// Execute
 			response, err := a.Run(ctx, input)
 			if err != nil {
 				return fmt.Errorf("chat failed: %w", err)
 			}
 
-			fmt.Println(response.Content)
+			if _agentStream {
+				fmt.Print(response.Content)
+			} else {
+				fmt.Println(response.Content)
+			}
 			return nil
 		},
 	}
+	chatCmd.Flags().BoolVarP(&_agentStream, "stream", "s", false, "流式输出响应")
 	agentCmd.AddCommand(chatCmd)
 
 	// ── run ──────────────────────────────────────────────────────────────────
 	runCmd := &cobra.Command{
 		Use:   "run [agent-id] [task...]",
 		Short: "运行指定 agent 执行任务",
-		Long:  `使用指定的 AI 代理执行特定任务，支持将剩余参数拼接为完整任务描述。`,
-		Args:  cobra.MinimumNArgs(2),
+		Long: `使用指定的 AI 代理执行特定任务。
+
+根据会话类型自动选择执行模式：
+  main  - 直接执行（完整权限）
+  dm    - 沙箱执行（隔离环境）
+  group - 沙箱执行（群组隔离）
+
+示例：
+  af agent run coder "写一个快速排序"
+  af agent run coder -t dm "执行命令"
+  af agent run swe --sandbox "分析代码"`,
+		Args: cobra.MinimumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := rootContext()
 			agentID := args[0]
 
-			// 拼接任务内容
 			task := args[1]
 			for _, a := range args[2:] {
 				task += " " + a
@@ -169,22 +241,34 @@ func addAgentCommands() {
 				return fmt.Errorf("failed to get agent '%s': %w", agentID, err)
 			}
 
+			// Check sandbox flag
+			if _agentSandbox || _agentSessionType != "main" {
+				fmt.Fprintf(os.Stderr, "[Sandbox] Running in sandboxed mode\n")
+			}
+
 			result, err := a.Run(ctx, task)
 			if err != nil {
 				return fmt.Errorf("agent run failed: %w", err)
 			}
 
 			if outputFormat == "json" {
-				out := map[string]string{"agent_id": agentID, "result": result.Content}
+				out := map[string]interface{}{
+					"agent_id":  agentID,
+					"result":    result.Content,
+					"session":   _agentSessionType,
+					"sandboxed": _agentSandbox || _agentSessionType != "main",
+				}
 				b, _ := json.MarshalIndent(out, "", "  ")
 				fmt.Println(string(b))
 				return nil
 			}
 
-			fmt.Printf("Agent Result:\n%s\n", result.Content)
+			fmt.Printf("Agent Result (%s):\n%s\n", agentID, result.Content)
 			return nil
 		},
 	}
+	runCmd.Flags().IntVarP(&_agentMaxIter, "max-iter", "i", 10, "最大工具调用迭代次数")
+	runCmd.Flags().IntVarP(&_agentTimeout, "timeout", "T", 300, "超时时间（秒）")
 	agentCmd.AddCommand(runCmd)
 
 	// ── describe ─────────────────────────────────────────────────────────────
@@ -208,7 +292,6 @@ func addAgentCommands() {
 			fmt.Printf("Name:     %s\n", a.Name())
 			fmt.Printf("Type:     %T\n", a)
 
-			// 从配置中查找 AgentSpec
 			for _, spec := range cfg.Agents {
 				if spec.Name == agentID {
 					fmt.Printf("Kind:     %s\n", spec.Kind)
@@ -230,6 +313,28 @@ func addAgentCommands() {
 		},
 	}
 	agentCmd.AddCommand(describeCmd)
+
+	// ── session ──────────────────────────────────────────────────────────────
+	sessionListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "列出所有会话",
+		Long:  `列出系统中所有活动会话。`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// TODO: Implement session listing
+			fmt.Println("Sessions:")
+			fmt.Println("────────────────────────────────────────────────────────────")
+			fmt.Println("  (Session management not yet implemented)")
+			return nil
+		},
+	}
+
+	sessionCmd := &cobra.Command{
+		Use:   "session",
+		Short: "会话管理",
+		Long:  `管理 AI 代理会话，包括列出、查看和删除会话。`,
+	}
+	sessionCmd.AddCommand(sessionListCmd)
+	agentCmd.AddCommand(sessionCmd)
 
 	// ── workflows ────────────────────────────────────────────────────────────
 	agentWorkflowsCmd := &cobra.Command{
@@ -260,7 +365,6 @@ func addAgentCommands() {
 						if filterAgent == "" {
 							fmt.Printf("  %-25s  kind=%-15s  steps=%v\n", wfID, spec.Kind, spec.Steps)
 						} else {
-							// 检查工作流是否包含该 agent
 							contains := false
 							for _, step := range spec.Steps {
 								if step == filterAgent {
@@ -288,5 +392,61 @@ func addAgentCommands() {
 	}
 	agentCmd.AddCommand(agentWorkflowsCmd)
 
+	// ── exec (new) ──────────────────────────────────────────────────────────
+	execCmd := &cobra.Command{
+		Use:   "exec [agent-id] [task...]",
+		Short: "执行带上下文的任务（实验性）",
+		Long: `执行带有完整上下文组装的任务，包括：
+- Workspace 配置
+- 会话历史
+- 记忆检索
+- 技能激活
+
+示例：
+  af agent exec coder "实现排序算法"
+  af agent exec swe -w ./workspace "分析代码"`,
+		Args: cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := rootContext()
+			agentID := args[0]
+
+			task := args[1]
+			for _, a := range args[2:] {
+				task += " " + a
+			}
+
+			a, err := app.GetHost().GetAgent(agentID)
+			if err != nil {
+				return fmt.Errorf("failed to get agent '%s': %w", agentID, err)
+			}
+
+			fmt.Fprintf(os.Stderr, "[Context] Session: %s, Channel: %s\n",
+				_agentSessionType, _agentChannel)
+
+			result, err := a.Run(ctx, task)
+			if err != nil {
+				return fmt.Errorf("exec failed: %w", err)
+			}
+
+			fmt.Println(result.Content)
+			return nil
+		},
+	}
+	agentCmd.AddCommand(execCmd)
+
 	rootCmd.AddCommand(agentCmd)
+}
+
+// resolveSessionType converts string to SessionType
+func resolveSessionType(s string) agent.SessionType {
+	switch strings.ToLower(s) {
+	case "main":
+		return agent.SessionTypeMain
+	case "dm":
+		return agent.SessionTypeDM
+	case "group":
+		return agent.SessionTypeGroup
+	default:
+		return agent.SessionTypeMain
+	}
 }

@@ -275,7 +275,7 @@ func (m *PluginRepositoryManager) GetRepositoryPluginInfo(repoName, pluginName s
 		}
 	}
 
-	return nil, errors.Newf(errors.ErrCodeNotFound, "plugin %s not found in repository %s", pluginName)
+	return nil, errors.Newf(errors.ErrCodeNotFound, "plugin %s not found", pluginName)
 }
 
 // Install installs a plugin from repository
@@ -296,13 +296,13 @@ func (m *PluginRepositoryManager) Install(ctx context.Context, repoName, pluginN
 	// Download plugin if URL provided
 	if info.Repository.URL != "" {
 		if err := m.downloadPlugin(info); err != nil {
-			return errors.Wrapf(err, errors.ErrCodeDownloadFailed, "failed to download plugin: %w", pluginName)
+			return errors.Wrapf(err, errors.ErrCodeDownloadFailed, "failed to download plugin %s: %s", pluginName, err.Error())
 		}
 	}
 
 	// Install plugin
 	if err := m.installer.InstallPlugin(ctx, info); err != nil {
-		return errors.Wrapf(err, errors.ErrCodeInstallFailed, "failed to install plugin: %w", pluginName)
+		return errors.Wrapf(err, errors.ErrCodeInstallFailed, "failed to install plugin %s: %s", pluginName, err.Error())
 	}
 
 	return nil
@@ -321,7 +321,7 @@ func (m *PluginRepositoryManager) downloadPlugin(info *RepositoryPluginInfo) err
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("download failed with status %d: %s", resp.StatusCode)
+		return fmt.Errorf("download failed with status %d", resp.StatusCode)
 	}
 
 	// Save to file
