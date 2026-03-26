@@ -1,0 +1,217 @@
+# =============================================================================
+# Agent Framework - 生产环境配置
+# =============================================================================
+#
+# 生产环境配置，用于正式部署。
+# 使用方法：通过 --profile production 或环境变量指定。
+#
+# 安全提示：
+#   1. 敏感信息使用环境变量 ${VAR} 配置
+#   2. 启用消息加密
+#   3. 配置合理的会话策略
+#   4. 启用限流和监控
+#
+# =============================================================================
+
+name: agent_framework_prod
+version: "2.0.0"
+
+defaultModel: "production"
+
+models:
+  # 生产环境主模型
+  production:
+    provider: "zhipu"
+    baseurl: "https://open.bigmodel.cn/api/paas/v4"
+    model: "glm-4-plus"
+    apikey: "${ZHIPU_API_KEY}"
+    maxtokens: 8192
+    temperature: 0.7
+    maxRetries: 3
+    retryInterval: 1000
+
+  # 备用模型
+  backup:
+    provider: "deepseek"
+    baseurl: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    apikey: "${DEEPSEEK_API_KEY}"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # 高性能模型
+  advanced:
+    provider: "openai"
+    baseurl: "https://api.openai.com/v1"
+    model: "gpt-4-turbo"
+    apikey: "${OPENAI_API_KEY}"
+    maxtokens: 8192
+    temperature: 0.7
+
+# 生产环境使用 Redis 存储
+threadStore:
+  type: "redis"
+  redisAddr: "${REDIS_ADDR}"
+  redisPrefix: "agent:prod:"
+  maxMessages: 200
+  ttl: 86400
+
+agents:
+  - name: production_chat
+    kind: chat
+    model: "production"
+    instructions: |
+      You are a professional AI assistant.
+      Provide accurate, helpful, and safe responses.
+      Follow user privacy and security guidelines.
+    tools:
+      - web_search
+      - file_read
+    middlewares:
+      - logging
+      - recovery
+      - rate_limit
+    maxMessages: 100
+    enableTrimming: true
+    trimRatio: 0.8
+
+  - name: advanced_agent
+    kind: react
+    model: "advanced"
+    instructions: |
+      Advanced reasoning agent for complex tasks.
+      Use tools when necessary.
+    tools:
+      - code_execute
+      - web_search
+      - file_write
+    middlewares:
+      - logging
+      - recovery
+
+workflows:
+  - name: main_workflow
+    kind: sequential
+    steps:
+      - production_chat
+
+  - name: advanced_workflow
+    kind: routing
+    model: "production"
+    routes:
+      chat: main_workflow
+      code: advanced_agent
+
+# 生产环境渠道配置
+channels:
+  # 微信企业号（使用 ClawBot 推荐）
+  wechat:
+    enabled: true
+    type: "wecom"
+    corpId: "${WECHAT_CORP_ID}"
+    agentId: "${WECHAT_AGENT_ID}"
+    corpSecret: "${WECHAT_CORP_SECRET}"
+    token: "${WECHAT_TOKEN}"
+    encryptKey: "${WECHAT_ENCRYPT_KEY}"
+    port: 8080
+    autoReply: true
+    sessionPolicy: "restricted"
+
+  # 飞书（WebSocket 模式）
+  lark:
+    enabled: true
+    domain: "feishu"
+    appId: "${LARK_APP_ID}"
+    appSecret: "${LARK_APP_SECRET}"
+    connectionMode: "websocket"
+    dmPolicy: "pairing"
+    dmAllowlist: []
+    groupPolicy: "allowlist"
+    groupAllowlist:
+      - "${LARK_GROUP_ID_1}"
+      - "${LARK_GROUP_ID_2}"
+    streaming: true
+    textChunkLimit: 2000
+    typingIndicator: true
+    resolveSenderNames: true
+    rateLimitEnabled: true
+    rateLimitPerSec: 10
+    botName: "AI 智能助手"
+
+  # Telegram Bot
+  telegram:
+    enabled: true
+    botToken: "${TELEGRAM_BOT_TOKEN}"
+    webhookUrl: "${TELEGRAM_WEBHOOK_URL}"
+    port: 8443
+    allowedChats:
+      - ${TELEGRAM_CHAT_ID_1}
+      - ${TELEGRAM_CHAT_ID_2}
+
+# 生产环境消息配置
+messaging:
+  enabled: true
+  provider: "default"
+
+# 调度器启用
+scheduler:
+  enabled: true
+  timezone: "Asia/Shanghai"
+  maxJobs: 20
+  jobTimeout: 600
+
+# 心跳启用
+heartbeat:
+  enabled: true
+  interval: 30
+  timeout: 10
+
+# 异步任务启用
+asyncTask:
+  enabled: true
+  maxTasks: 200
+  taskTimeout: 1200
+
+# Token 压缩启用
+tokenCompression:
+  enabled: true
+  strategy: "hybrid"
+  targetTokens: 4000
+  minTokens: 500
+  maxTokens: 8000
+  preserveSystemMessages: true
+  summaryModelName: "production"
+  summaryMaxTokens: 500
+
+# 内存管理
+memory:
+  modelCache:
+    enabled: true
+    maxSize: 20
+    ttl: 7200
+    cleanupInterval: 600
+  memoryMonitor:
+    enabled: true
+    interval: 60
+    historySize: 200
+    alertThreshold: 2048
+    alertInterval: 300
+  checkpoint:
+    maxCheckpoints: 20
+    ttl: 604800          # 7天
+    cleanupInterval: 3600
+
+# 上下文存储
+contextStore:
+  enabled: true
+  type: "openviking"
+  openviking:
+    endpoint: "${OPENVIKING_ENDPOINT}"
+    apiKey: "${OPENVIKING_API_KEY}"
+    workspace: "${OPENVIKING_WORKSPACE}"
+    timeout: 30
+    maxRetries: 3
+    autoSync: true
+
+# 技能目录
+skillSystemDir: "/opt/agent/skills"

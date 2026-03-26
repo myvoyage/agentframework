@@ -30,9 +30,12 @@ type MemoryOptions struct {
 	EnableTrimming bool    // Enable intelligent message trimming
 }
 
-// MemoryManager provides centralized memory management for agents
+// MemoryManager provides centralized memory management for agents.
+// It manages message history trimming and optionally holds a MemorySearcher
+// for RAG-based long-term memory retrieval.
 type MemoryManager struct {
-	opts MemoryOptions
+	opts     MemoryOptions
+	searcher MemorySearcher // optional RAG/keyword search backend
 }
 
 // NewMemoryManager creates a new MemoryManager with the given options
@@ -59,6 +62,20 @@ func DefaultMemoryManager() *MemoryManager {
 		TrimRatio:      0.7,
 		EnableTrimming: true,
 	})
+}
+
+// SetSearcher attaches a MemorySearcher implementation (e.g. VectorMemory or
+// SimpleMemory) to the manager so that ContextAssembler can perform RAG lookups.
+func (m *MemoryManager) SetSearcher(s MemorySearcher) {
+	m.searcher = s
+}
+
+// GetSearcher returns the current MemorySearcher and whether it is set.
+func (m *MemoryManager) GetSearcher() (MemorySearcher, bool) {
+	if m.searcher == nil {
+		return nil, false
+	}
+	return m.searcher, true
 }
 
 // SetOptions updates the memory management options

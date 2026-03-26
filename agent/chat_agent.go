@@ -150,7 +150,34 @@ func (a *ChatAgent) ClearHistory() {
 	a.thread.Messages = a.memoryManager.ClearHistory()
 }
 
+// GetHistory returns the conversation history
+func (a *ChatAgent) GetHistory() []*ThreadMessage {
+	messages := a.thread.Messages
+	result := make([]*ThreadMessage, 0, len(messages))
+	for _, msg := range messages {
+		result = append(result, &ThreadMessage{
+			Role:    string(msg.Role),
+			Content: msg.Content,
+		})
+	}
+	return result
+}
+
+// ThreadMessage represents a message in the conversation thread
+type ThreadMessage struct {
+	Role    string
+	Content string
+}
+
 func (a *ChatAgent) Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error) {
+	// 如果处于最终状态，先重置到 IDLE（支持多轮对话）
+	if a.stateMachine.IsTerminal() {
+		if err := a.stateMachine.Transition(ctx, StateIdle, "Resetting for new conversation turn", nil); err != nil {
+			// 如果转换失败，尝试强制重置
+			_ = a.stateMachine.Reset()
+		}
+	}
+
 	// 转换到 RUNNING 状态
 	if err := a.stateMachine.Transition(ctx, StateRunning, "Starting Run execution", map[string]any{
 		"input_length": len(input),

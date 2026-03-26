@@ -79,8 +79,8 @@ type Context struct {
 	// Skills are the active skills for this context
 	Skills []string
 
-	// MemoryResults are relevant memories
-	MemoryResults []*MemoryResult
+	// MemoryResults are relevant memories retrieved by RAG search
+	MemoryResults []MemoryResult
 
 	// Tools are available tools
 	Tools []string
@@ -92,19 +92,15 @@ type Context struct {
 	WorkspaceConfig *workspace.Config
 }
 
-// MemoryResult represents a retrieved memory
-type MemoryResult struct {
-	Content string
-	Score   float64
-	Source  string
-}
+// MemoryResult is defined in rag_memory.go
 
 // ContextAssembler assembles the execution context for an agent
 type ContextAssembler struct {
-	wsPath  string
-	wsCfg   *workspace.Config
-	memory  *MemoryManager
-	cfg     *ContextConfig
+	wsPath   string
+	wsCfg    *workspace.Config
+	memory   *MemoryManager
+	searcher MemorySearcher // optional; preferred over memory.GetSearcher() if set
+	cfg      *ContextConfig
 }
 
 // NewContextAssembler creates a new context assembler
@@ -154,6 +150,14 @@ func NewContextAssembler(wsPath string, memory *MemoryManager, cfg *ContextConfi
 		memory:  memory,
 		cfg:     cfg,
 	}, nil
+}
+
+// WithSearcher attaches a MemorySearcher to the ContextAssembler.
+// This takes precedence over any searcher registered on the MemoryManager.
+// Use this to inject a VectorMemory or SimpleMemory at startup.
+func (ca *ContextAssembler) WithSearcher(s MemorySearcher) *ContextAssembler {
+	ca.searcher = s
+	return ca
 }
 
 // Assemble builds the execution context for the given session and input
@@ -286,13 +290,69 @@ func (ca *ContextAssembler) assembleHistory(ctx context.Context, execCtx *Contex
 	return nil
 }
 
-// assembleMemory adds relevant memories to the context
+// assembleMemory adds relevant memories to the context via RAG search.
+// Resolution order for the search backend:
+//  1. ca.searcher (set via WithSearcher)
+//  2. ca.memory.GetSearcher() (registered on the MemoryManager)
+//  3. skip silently
+//
+// Results are filtered by a minimum relevance score of 0.05, sorted by
+// descending relevance, and stored in execCtx.MemoryResults.  They are also
+// appended to execCtx.SystemPrompt as a Markdown section so the model can
+// reference them.
 func (ca *ContextAssembler) assembleMemory(ctx context.Context, execCtx *Context, input string) error {
-	// Memory search is optional - if MemoryManager doesn't have Search,
-	// we skip memory retrieval
-	// This can be enhanced with proper RAG integration later
-	_ = ca.memory
-	_ = input
+	// Resolve the search backend.
+	var searcher MemorySearcher
+	if ca.searcher != nil {
+		searcher = ca.searcher
+	} else if ca.memory != nil {
+		if s, ok := ca.memory.GetSearcher(); ok {
+			searcher = s
+		}
+	}
+	if searcher == nil {
+		return nil // no memory backend configured
+	}
+
+	limit := ca.cfg.MemoryLimit
+	if limit <= 0 {
+		limit = 5
+	}
+
+	results, err := searcher.Search(ctx, input, limit)
+	if err != nil {
+		// Non-fatal: log and continue without memory context.
+		return nil
+	}
+
+	// Filter results below the relevance threshold.
+	const minScore = 0.05
+	filtered := make([]MemoryResult, 0, len(results))
+	for _, r := range results {
+		if r.Score >= minScore {
+			filtered = append(filtered, r)
+		}
+	}
+
+	if len(filtered) == 0 {
+		return nil
+	}
+
+	execCtx.MemoryResults = filtered
+
+	// Append memory section to the system prompt so the model can reference it.
+	if execCtx.SystemPrompt != "" && len(filtered) > 0 {
+		var sb strings.Builder
+		sb.WriteString("\n\n## 相关历史记忆\n\n")
+		sb.WriteString("> 以下是与当前问题相关的历史记忆，供参考:\n\n")
+		for i, r := range filtered {
+			sb.WriteString(fmt.Sprintf("**[%d]** 相关性: %.2f  | 来源: `%s`\n\n", i+1, r.Score, r.Source))
+			sb.WriteString(r.Content)
+			sb.WriteString("\n\n---\n\n")
+		}
+		execCtx.SystemPrompt += sb.String()
+	}
+
 	return nil
 }
 
@@ -383,7 +443,8 @@ func (ec *Context) HasSkills() bool {
 	return len(ec.Skills) > 0
 }
 
-// FormatMemoryResults formats memory results for inclusion in prompt
+// FormatMemoryResults formats memory results for inclusion in the system prompt.
+// Results are ordered by descending relevance score and formatted as a Markdown section.
 func (ec *Context) FormatMemoryResults() string {
 	if !ec.HasMemory() {
 		return ""

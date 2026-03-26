@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -89,13 +90,15 @@ func Execute() error {
 	rootCmd.PersistentFlags().StringVar(&_PROFILE, "profile", "default", "配置文件名 (default/production/development)")
 	rootCmd.PersistentFlags().BoolVar(&_NO_COLOR, "no-color", false, "禁用颜色输出")
 
-	// Add subcommands - Setup
-	addSetupCommands()
+// Add subcommands - Setup
+addSetupCommands()
 
-	// Add subcommands - System
-	addDoctorCommands()
+// Add subcommands - System
+addDoctorCommands()
+addSecretsCommands()
+addLogsCommands()
 
-	// Add subcommands - Core
+// Add subcommands - Core
 	addWorkflowCommands()
 	addSkillCommands()
 	addConfigCommands()
@@ -103,10 +106,10 @@ func Execute() error {
 	addAgentCommands()
 	addGatewayCommands()
 
-	// Add subcommands - Advanced
-	addTaskCommands()
-	addScheduleCommands()
-	addChannelCommands()
+// Add subcommands - Advanced
+addTaskCommands()
+addEnhancedScheduleCommands()
+addChannelCommands()
 	addPluginCommands()
 	addMonitorCommands()
 	addTokenCommands()
@@ -122,39 +125,134 @@ func initApplication() error {
 	var hostCfg *agent.HostConfig
 	var err error
 
-	if configFile != "" {
-		hostCfg, err = agent.LoadHostConfigFile(configFile)
+	// Try to load config from specified file or default location
+	configPath := configFile
+	if configPath == "" {
+		// Try default config location
+		dataDir, _ := getDefaultDataDir()
+		defaultConfigPath := filepath.Join(dataDir, "config.yaml")
+		if _, statErr := os.Stat(defaultConfigPath); statErr == nil {
+			configPath = defaultConfigPath
+		}
+	}
+
+	if configPath != "" {
+		hostCfg, err = agent.LoadHostConfigFile(configPath)
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return fmt.Errorf("failed to load config from %s: %w", configPath, err)
 		}
 	}
 
 	// Use defaults if no config found
 	if hostCfg == nil {
 		hostCfg = &agent.HostConfig{
+			Name:         "agentframework",
+			DefaultModel: "default",
 			Models: map[string]agent.ModelConfig{
 				"default": {
 					Type:  "ollama",
 					Model: "llama3",
 				},
 			},
+			Agents: []agent.AgentSpec{
+				{
+					Name:         "default",
+					Kind:         "chat",
+					Model:        "default",
+					Instructions: "You are a helpful AI assistant.",
+				},
+				{
+					Name:         "coder",
+					Kind:         "chat",
+					Model:        "default",
+					Instructions: "You are an expert programmer. Help users with coding tasks, debugging, and software development.",
+				},
+				{
+					Name:         "assistant",
+					Kind:         "chat",
+					Model:        "default",
+					Instructions: "You are a general-purpose AI assistant capable of helping with various tasks.",
+				},
+			},
 			SkillSystemDir: ".skills",
+		}
+	} else {
+		// Ensure default model exists
+		if hostCfg.DefaultModel == "" {
+			hostCfg.DefaultModel = "default"
+		}
+		if hostCfg.Models == nil {
+			hostCfg.Models = map[string]agent.ModelConfig{
+				"default": {
+					Type:  "ollama",
+					Model: "llama3",
+				},
+			}
+		}
+		// Add default agents if none defined
+		if len(hostCfg.Agents) == 0 {
+			hostCfg.Agents = []agent.AgentSpec{
+				{
+					Name:         "default",
+					Kind:         "chat",
+					Model:        hostCfg.DefaultModel,
+					Instructions: "You are a helpful AI assistant.",
+				},
+				{
+					Name:         "coder",
+					Kind:         "chat",
+					Model:        hostCfg.DefaultModel,
+					Instructions: "You are an expert programmer.",
+				},
+			}
 		}
 	}
 
 	// Override model if specified
+	// Supports formats: "lmstudio", "ollama:llama3", "openai:gpt-4"
 	if modelName != "" {
 		if hostCfg.Models == nil {
 			hostCfg.Models = make(map[string]agent.ModelConfig)
 		}
+
+		// Parse model string: "type:model" or just "model"
+		modelType := "ollama" // default
+		modelValue := modelName
+
+		if parts := strings.SplitN(modelName, ":", 2); len(parts) == 2 {
+			modelType = parts[0]
+			modelValue = parts[1]
+		} else {
+			// Check if modelName is a known model type (without explicit model)
+			switch strings.ToLower(modelName) {
+			case "ollama", "openai", "lmstudio":
+				modelType = strings.ToLower(modelName)
+				modelValue = "" // use default model
+			}
+		}
+
+		// Set default model name for types that require it
+		if modelValue == "" {
+			switch modelType {
+			case "lmstudio":
+				modelValue = "qwen3" // LM Studio default model name
+			case "ollama":
+				modelValue = "llama3" // Ollama default model name
+			case "openai":
+				modelValue = "gpt-3.5-turbo" // OpenAI default model name
+			}
+		}
+
 		hostCfg.Models["default"] = agent.ModelConfig{
-			Type:  "ollama",
-			Model: modelName,
+			Type:  modelType,
+			Model: modelValue,
 		}
 	}
 
-	// Create model factory
-	modelFactory := agent.NewModelFactoryWithConfig(hostCfg.Models["default"])
+	// Create model factory (use NewDefaultModelFactory to support multiple models)
+	modelFactory := agent.NewDefaultModelFactory(agent.DefaultModelFactoryConfig{
+		Models: hostCfg.Models,
+	})
 
 	// Create application
 	ctx := rootContext()

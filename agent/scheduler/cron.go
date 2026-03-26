@@ -116,13 +116,23 @@ func (c *CronScheduler) Unschedule(ctx context.Context, jobID string) error {
 	return nil
 }
 
-// GetNextRunTime 获取下次运行时间
+// GetNextRunTime 获取以当前时间为基准的下次运行时间
 func (c *CronScheduler) GetNextRunTime(cronExpr string) (time.Time, error) {
 	schedule, err := cron.ParseStandard(cronExpr)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("invalid cron expression: %w", err)
 	}
 	return schedule.Next(time.Now()), nil
+}
+
+// GetNextRunTimeAfter 获取以 after 时间为基准的下次运行时间。
+// 这允许调用方通过递进参考时间来枚举连续的触发时刻。
+func (c *CronScheduler) GetNextRunTimeAfter(cronExpr string, after time.Time) (time.Time, error) {
+	schedule, err := cron.ParseStandard(cronExpr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid cron expression: %w", err)
+	}
+	return schedule.Next(after), nil
 }
 
 // ValidateCronExpr 验证 Cron 表达式

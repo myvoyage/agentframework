@@ -1,0 +1,105 @@
+# =============================================================================
+# Agent Framework - 开发环境配置
+# =============================================================================
+#
+# 开发环境配置，用于本地开发和测试。
+# 使用方法：将此文件复制为 host.yaml 或通过 --profile development 指定。
+#
+# =============================================================================
+
+name: agent_framework_dev
+version: "2.0.0"
+
+# 开发环境默认使用本地模型
+defaultModel: "local"
+
+models:
+  # LM Studio 本地模型（推荐开发使用）
+  local:
+    provider: "lmstudio"
+    baseurl: "http://localhost:1234/v1"
+    model: "local-model"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # Ollama 备选
+  ollama:
+    provider: "ollama"
+    baseurl: "http://localhost:11434/api"
+    model: "llama3"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # 测试用的 API 模型
+  test:
+    provider: "zhipu"
+    baseurl: "https://open.bigmodel.cn/api/paas/v4"
+    model: "glm-4-flash"
+    apikey: "${ZHIPU_API_KEY}"
+    maxtokens: 2048
+    temperature: 0.5
+
+threadStore:
+  type: "memory"
+  maxMessages: 50
+  ttl: 3600
+
+agents:
+  - name: dev_chat
+    kind: chat
+    model: "local"
+    instructions: "You are a development assistant. Be concise and helpful."
+    tools: []
+
+  - name: test_agent
+    kind: chat
+    model: "test"
+    instructions: "Test agent for development."
+    tools:
+      - echo
+
+workflows: []
+
+# 开发环境渠道配置（本地测试）
+channels:
+  # 使用本地 ClawBot 测试
+  wechat:
+    enabled: false
+    type: "clawbot"
+    clawBotUrl: "http://localhost:6174"
+    port: 8080
+
+  # 飞书 WebSocket 测试
+  lark:
+    enabled: false
+    domain: "feishu"
+    appId: "${LARK_APP_ID}"
+    appSecret: "${LARK_APP_SECRET}"
+    connectionMode: "websocket"
+    dmPolicy: "open"
+    groupPolicy: "open"
+    streaming: true
+
+# 开发环境调度器禁用
+scheduler:
+  enabled: false
+
+# 心跳禁用
+heartbeat:
+  enabled: false
+
+# 内存管理启用
+memory:
+  modelCache:
+    enabled: true
+    maxSize: 5
+  memoryMonitor:
+    enabled: true
+    interval: 30
+
+# 开发模式详细日志
+tokenCompression:
+  enabled: false
+
+# 技能目录
+skillSystemDir: "./skills"

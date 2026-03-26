@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"runtime"
+	goruntime "runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +16,7 @@ import (
 
 	"AgentFramework/agent"
 	"AgentFramework/agent/messaging"
+	"AgentFramework/agent/runtime"
 	"AgentFramework/internal/auth"
 )
 
@@ -43,6 +44,11 @@ type Service struct {
 
 	// Health checks
 	healthChecks map[string]func() HealthCheck
+
+	// Agent runtime (OpenClaw-style: Gateway + Agent Runtime)
+	runtimeManager *runtime.RuntimeManager
+	gatewayBridge  *runtime.GatewayBridge
+	agentRuntime   *runtime.AgentRuntime
 }
 
 // NewService creates a new gateway service
@@ -69,16 +75,75 @@ func NewService(cfg *Config, host *agent.Host) *Service {
 		s.channelMgr = host.ChannelManager()
 	}
 
+	// Initialize Agent Runtime (OpenClaw-style architecture)
+	s.initAgentRuntime()
+
 	// Register default health checks
 	s.registerHealthChecks()
 
 	return s
 }
 
+// initAgentRuntime initializes the agent runtime components
+func (s *Service) initAgentRuntime() {
+	// Skip if runtime is disabled
+	if !s.cfg.Runtime.Enabled {
+		log.Printf("[Gateway] Agent Runtime disabled in config")
+		return
+	}
+
+	// Get runtime config with time durations
+	instanceTTL, healthCheckInterval, requestTimeout := s.cfg.RuntimeConfig()
+
+	// Create runtime manager
+	runtimeConfig := &runtime.RuntimeConfig{
+		MaxInstances:        s.cfg.Runtime.MaxInstances,
+		InstanceTTL:         instanceTTL,
+		HealthCheckInterval: healthCheckInterval,
+		EnablePool:          s.cfg.Runtime.EnablePool,
+		EnableMetrics:       s.cfg.Runtime.EnableMetrics,
+	}
+
+	s.runtimeManager = runtime.NewRuntimeManager(runtimeConfig, s.host)
+
+	// Create gateway bridge
+	s.gatewayBridge = runtime.NewGatewayBridge(s.runtimeManager)
+
+	// Configure router
+	if s.gatewayBridge.Router() != nil {
+		s.gatewayBridge.Router().SetConfig(&runtime.RouteConfig{
+			Type:       runtime.RouteType(s.cfg.Runtime.RouteType),
+			MaxRetries: s.cfg.Runtime.MaxRetries,
+			Timeout:    requestTimeout,
+		})
+	}
+
+	// Set worker count
+	if s.cfg.Runtime.WorkerCount > 0 {
+		s.gatewayBridge.SetWorkerCount(s.cfg.Runtime.WorkerCount)
+	}
+
+	// Create agent runtime
+	s.agentRuntime = runtime.NewAgentRuntime(nil, s.runtimeManager)
+
+	// Register built-in channel adapters
+	runtime.RegisterBuiltinAdapters(s.gatewayBridge)
+
+	log.Printf("[Gateway] Agent Runtime initialized (maxInstances=%d, routeType=%s)",
+		s.cfg.Runtime.MaxInstances, s.cfg.Runtime.RouteType)
+}
+
 // Start starts the gateway service
 func (s *Service) Start(ctx context.Context) error {
 	// Start tick goroutine
 	go s.runTickLoop()
+
+	// Start agent runtime
+	if s.gatewayBridge != nil {
+		if err := s.gatewayBridge.Start(ctx); err != nil {
+			log.Printf("[Gateway] Warning: failed to start agent runtime: %v", err)
+		}
+	}
 
 	log.Printf("[Gateway] Service started on %s:%d", s.cfg.Gateway.Host, s.cfg.Gateway.Port)
 	return nil
@@ -87,6 +152,11 @@ func (s *Service) Start(ctx context.Context) error {
 // Stop stops the gateway service
 func (s *Service) Stop(ctx context.Context) error {
 	close(s.tickStop)
+
+	// Stop agent runtime
+	if s.gatewayBridge != nil {
+		s.gatewayBridge.Stop()
+	}
 
 	s.connMgr.connections = make(map[string]*Connection)
 	s.connMgr.seqCounters = make(map[string]int64)
@@ -353,8 +423,8 @@ func (s *Service) registerHealthChecks() {
 	}
 
 	s.healthChecks["memory"] = func() HealthCheck {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
+		var m goruntime.MemStats
+		goruntime.ReadMemStats(&m)
 		if m.HeapAlloc > 500*1024*1024 {
 			return HealthCheck{Status: "warn", Message: fmt.Sprintf("high memory: %.1fMB", float64(m.HeapAlloc)/1024/1024)}
 		}
@@ -369,8 +439,8 @@ func (s *Service) BuildHealth(ctx context.Context) *HealthStatus {
 	}
 
 	var memMB float64
-	var memStats runtime.MemStats
-	runtime.ReadMemStats(&memStats)
+	var memStats goruntime.MemStats
+	goruntime.ReadMemStats(&memStats)
 	memMB = float64(memStats.HeapAlloc) / 1024 / 1024
 
 	channels := []ChannelStatus{}

@@ -1,19 +1,132 @@
+# =============================================================================
+# Agent Framework - 主配置文件
+# =============================================================================
+#
+# 这是默认配置文件，启动时会自动加载。
+# 更多配置选项请参考 config/host.example.yaml
+#
+# 使用方法：
+#   ./afcli agent chat "你好"     # 单次问答
+#   ./afcli agent chat           # 多轮会话
+#   ./afcli wechat install       # 安装微信插件
+#   ./afcli lark install         # 安装飞书插件
+#
+# =============================================================================
+
 name: agent_cli_app
-version: "1.0.0"
-defaultModel: "GLM-4-Flash-250414"
+version: "2.0.0"
 
+# 默认模型（使用本地模型或配置 API Key）
+defaultModel: "default"
+
+# ── 模型配置 ─────────────────────────────────────────────────────────────────
+models:
+  # LM Studio 本地模型（推荐）
+  default:
+    provider: "lmstudio"
+    baseurl: "http://localhost:1234/v1"
+    model: "local-model"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # Ollama 本地模型
+  ollama:
+    provider: "ollama"
+    baseurl: "http://localhost:11434/api"
+    model: "llama3"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # GLM 智谱（需要 API Key）
+  # glm:
+  #   provider: "zhipu"
+  #   baseurl: "https://open.bigmodel.cn/api/paas/v4"
+  #   model: "glm-4-flash"
+  #   apikey: "${ZHIPU_API_KEY}"
+  #   maxtokens: 4096
+
+  # DeepSeek（需要 API Key）
+  # deepseek:
+  #   provider: "deepseek"
+  #   baseurl: "https://api.deepseek.com/v1"
+  #   model: "deepseek-chat"
+  #   apikey: "${DEEPSEEK_API_KEY}"
+  #   maxtokens: 4096
+
+# ── 线程存储 ─────────────────────────────────────────────────────────────────
 threadStore:
-  type: memory
+  type: "memory"
+  maxMessages: 100
 
+# ── Agent 定义 ─────────────────────────────────────────────────────────────────
 agents:
   - name: default_chat
     kind: chat
-    model: "GLM-4-Flash-250414"
-    instructions: "You are a helpful assistant. Answer in Chinese."
+    model: "default"
+    instructions: |
+      You are a helpful AI assistant.
+      Respond in Chinese when the user speaks Chinese.
+      Be concise and helpful.
+    tools: []
 
+  - name: code_agent
+    kind: chat
+    model: "default"
+    instructions: "You are a coding assistant. Help with programming tasks."
+    tools:
+      - code_execute
+
+# ── 工作流 ─────────────────────────────────────────────────────────────────────
 workflows:
   - name: simple_chat
     kind: sequential
     steps:
       - default_chat
+
+# ── 渠道配置 ───────────────────────────────────────────────────────────────────
+# 使用 CLI 命令配置渠道：
+#   ./afcli wechat config --app-id xxx --app-secret xxx
+#   ./afcli lark config --app-id cli_xxx --app-secret xxx
+#
+channels:
+  # 微信渠道（企业微信/ClawBot/公众号/小程序）
+  wechat:
+    enabled: false
+    type: "wecom"
+    # corpId: "${WECHAT_CORP_ID}"
+    # agentId: "${WECHAT_AGENT_ID}"
+    # corpSecret: "${WECHAT_CORP_SECRET}"
+    # clawBotUrl: "http://localhost:6174"
+    port: 8080
+
+  # 飞书/Lark 渠道
+  lark:
+    enabled: true 
+    domain: "feishu"
+    connectionMode: "websocket"  # 推荐，无需公网 URL
+    # appId: "${LARK_APP_ID}"
+    # appSecret: "${LARK_APP_SECRET}"
+    dmPolicy: "pairing"
+    groupPolicy: "open"
+    streaming: true
+
+  # 钉钉渠道
+  dingtalk:
+    enabled: false
+
+  # Telegram 渠道
+  telegram:
+    enabled: false
+
+  # Slack 渠道
+  slack:
+    enabled: false
+
+# ── 调度器（可选）─────────────────────────────────────────────────────────────
+scheduler:
+  enabled: false
+
+# ── 心跳（可选）───────────────────────────────────────────────────────────────
+heartbeat:
+  enabled: false
 

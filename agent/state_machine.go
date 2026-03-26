@@ -144,14 +144,19 @@ func (sm *StateMachine) setupDefaultTransitions() {
 		StateRunning, StateCancelled,
 	}
 
-	// FINISHED, ERROR, CANCELLED 是最终状态
-	sm.transitions[StateFinished] = []AgentState{}
-	sm.transitions[StateError] = []AgentState{}
-	sm.transitions[StateCancelled] = []AgentState{}
+	// FINISHED 可以转换到 IDLE（用于多轮对话重置）
+	sm.transitions[StateFinished] = []AgentState{
+		StateIdle,
+	}
 
-	// ERROR 可以重新开始（可选）
+	// ERROR 可以重新开始
 	sm.transitions[StateError] = []AgentState{
 		StateIdle, StateRunning,
+	}
+
+	// CANCELLED 可以转换到 IDLE
+	sm.transitions[StateCancelled] = []AgentState{
+		StateIdle,
 	}
 }
 

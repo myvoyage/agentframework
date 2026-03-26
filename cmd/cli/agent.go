@@ -8,10 +8,14 @@
 package cli
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -155,57 +159,91 @@ func addAgentCommands() {
 	// ── chat ─────────────────────────────────────────────────────────────────
 	chatCmd := &cobra.Command{
 		Use:   "chat [message]",
-		Short: "与 agent 对话",
+		Short: "与 agent 对话（支持多轮会话）",
 		Long: `使用 AI 代理进行对话。
+
+不带参数时进入交互式多轮会话模式：
+  af agent chat
+
+带参数时执行单次问答：
+  af agent chat "你好"
 
 会话类型决定执行权限：
   main  - 完整权限
   dm    - 沙箱隔离
   group - 沙箱隔离
 
+模型选项（--model / -m）：
+  lmstudio      - 使用 LM Studio（localhost:1234）
+  ollama        - 使用 Ollama（localhost:11434）
+  ollama:llama3 - 使用 Ollama 指定模型
+  openai:gpt-4  - 使用 OpenAI 指定模型
+
+交互命令：
+  /clear   - 清除会话历史
+  /history - 显示会话历史
+  /model   - 显示当前模型
+  /exit    - 退出会话（或按 Ctrl+C）
+
 示例：
-  af agent chat "你好"
-  af agent chat -t main "执行系统命令"
-  af agent chat -c lark "群聊消息"`,
-		Args: cobra.MinimumNArgs(1),
+  af agent chat              # 进入交互式多轮会话
+  af agent chat "你好"       # 单次问答
+  af agent chat -m lmstudio  # 使用指定模型进入交互模式`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := rootContext()
 
-			input := args[0]
-			if len(args) > 1 {
-				for _, a := range args[1:] {
-					input += " " + a
+			// Create or get agent
+			var a agent.Agent
+			var err error
+
+			// Check if model override is specified
+			if modelName != "" {
+				chatModel, err := app.GetHost().GetModelFactory()(ctx, "default")
+				if err != nil {
+					return fmt.Errorf("failed to create model '%s': %w", modelName, err)
+				}
+
+				a, err = agent.NewChatAgent(ctx, agent.ChatAgentConfig{
+					Name:         "interactive-chat",
+					Instructions: "You are a helpful AI assistant.",
+					Model:        chatModel,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to create agent: %w", err)
+				}
+				fmt.Printf("[Using model: %s]\n", modelName)
+			} else {
+				agents := app.GetHost().ListAgents()
+				if len(agents) == 0 {
+					return fmt.Errorf("no agents available")
+				}
+
+				agentID := agents[0]
+				a, err = app.GetHost().GetAgent(agentID)
+				if err != nil {
+					return fmt.Errorf("failed to get agent: %w", err)
 				}
 			}
 
-			// Get agent
-			agents := app.GetHost().ListAgents()
-			if len(agents) == 0 {
-				return fmt.Errorf("no agents available")
-			}
-
-			agentID := agents[0]
+			// Single message mode
 			if len(args) > 0 {
-				agentID = args[0]
+				input := args[0]
+				response, err := a.Run(ctx, input)
+				if err != nil {
+					return fmt.Errorf("chat failed: %w", err)
+				}
+
+				if _agentStream {
+					fmt.Print(response.Content)
+				} else {
+					fmt.Println(response.Content)
+				}
+				return nil
 			}
 
-			a, err := app.GetHost().GetAgent(agentID)
-			if err != nil {
-				return fmt.Errorf("failed to get agent: %w", err)
-			}
-
-			// Execute
-			response, err := a.Run(ctx, input)
-			if err != nil {
-				return fmt.Errorf("chat failed: %w", err)
-			}
-
-			if _agentStream {
-				fmt.Print(response.Content)
-			} else {
-				fmt.Println(response.Content)
-			}
-			return nil
+			// Interactive mode
+			return runInteractiveChat(ctx, a)
 		},
 	}
 	chatCmd.Flags().BoolVarP(&_agentStream, "stream", "s", false, "流式输出响应")
@@ -449,4 +487,141 @@ func resolveSessionType(s string) agent.SessionType {
 	default:
 		return agent.SessionTypeMain
 	}
+}
+
+// runInteractiveChat runs an interactive multi-turn chat session
+func runInteractiveChat(ctx context.Context, a agent.Agent) error {
+	fmt.Println("════════════════════════════════════════════════════════════")
+	fmt.Println("  Agent Framework - Interactive Chat Mode")
+	fmt.Println("════════════════════════════════════════════════════════════")
+	fmt.Println()
+	fmt.Println("Commands:")
+	fmt.Println("  /clear   - Clear conversation history")
+	fmt.Println("  /history - Show conversation history")
+	fmt.Println("  /model   - Show current model info")
+	fmt.Println("  /exit    - Exit chat (or press Ctrl+C)")
+	fmt.Println()
+	fmt.Printf("Agent: %s\n", a.Name())
+	fmt.Println("────────────────────────────────────────────────────────────")
+	fmt.Println()
+
+	// Setup signal handling for graceful exit
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Create a cancellable context
+	cancelCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Handle signals in a goroutine
+	go func() {
+		<-sigChan
+		fmt.Println("\n\nExiting chat...")
+		cancel()
+	}()
+
+	reader := bufio.NewReader(os.Stdin)
+	turn := 0
+
+	for {
+		select {
+		case <-cancelCtx.Done():
+			return nil
+		default:
+		}
+
+		// Read user input
+		fmt.Print("You: ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			if err.Error() == "EOF" {
+				fmt.Println("\nGoodbye!")
+				return nil
+			}
+			return fmt.Errorf("failed to read input: %w", err)
+		}
+
+		// Trim whitespace
+		input = strings.TrimSpace(input)
+		if input == "" {
+			continue
+		}
+
+		// Handle commands
+		switch strings.ToLower(input) {
+		case "/exit", "/quit", "/q":
+			fmt.Println("\nGoodbye!")
+			return nil
+		case "/clear":
+			// Clear history if agent supports it
+			if clearer, ok := a.(interface{ ClearHistory() }); ok {
+				clearer.ClearHistory()
+				fmt.Println("✓ Conversation history cleared.\n")
+			} else {
+				fmt.Println("⚠ This agent does not support clearing history.\n")
+			}
+			continue
+		case "/history", "/h":
+			printAgentHistory(a)
+			continue
+		case "/model", "/m":
+			fmt.Printf("Current agent: %s\n\n", a.Name())
+			continue
+		case "/help", "/?":
+			fmt.Println("\nCommands:")
+			fmt.Println("  /clear   - Clear conversation history")
+			fmt.Println("  /history - Show conversation history")
+			fmt.Println("  /model   - Show current model info")
+			fmt.Println("  /exit    - Exit chat")
+			fmt.Println()
+			continue
+		}
+
+		// Send message to agent
+		turn++
+		fmt.Printf("\nAgent: ")
+
+		response, err := a.Run(cancelCtx, input)
+		if err != nil {
+			fmt.Printf("\n❌ Error: %v\n\n", err)
+			continue
+		}
+
+		fmt.Printf("%s\n\n", response.Content)
+		fmt.Println("────────────────────────────────────────────────────────────")
+	}
+}
+
+// printAgentHistory prints the agent's conversation history
+func printAgentHistory(a agent.Agent) {
+	fmt.Println("\nConversation History:")
+	fmt.Println("────────────────────────────────────────────────────────────")
+
+	// Try to get history from ChatAgent
+	type historyProvider interface {
+		GetHistory() []*agent.ThreadMessage
+	}
+
+	if hp, ok := a.(historyProvider); ok {
+		history := hp.GetHistory()
+		if len(history) == 0 {
+			fmt.Println("  (empty)")
+		} else {
+			for i, msg := range history {
+				role := "User"
+				if msg.Role == "assistant" {
+					role = "Agent"
+				}
+				content := msg.Content
+				if len(content) > 100 {
+					content = content[:100] + "..."
+				}
+				fmt.Printf("  %d. [%s] %s\n", i+1, role, content)
+			}
+		}
+	} else {
+		fmt.Println("  (history not available for this agent type)")
+	}
+	fmt.Println("────────────────────────────────────────────────────────────")
+	fmt.Println()
 }

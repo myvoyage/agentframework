@@ -1,0 +1,58 @@
+# =============================================================================
+# Agent Framework - 快速入门配置
+# =============================================================================
+#
+# 最小化配置，适合快速开始使用。
+# 使用方法：将此文件复制为 host.yaml
+#
+# 前置条件：
+#   1. 安装 LM Studio 或 Ollama
+#   2. 运行本地模型服务
+#
+# 快速开始：
+#   ./afcli agent chat "你好"
+#   ./afcli agent chat           # 进入交互模式
+#
+# =============================================================================
+
+name: agent_quickstart
+version: "1.0.0"
+defaultModel: "local"
+
+# 模型配置（使用本地模型，无需 API Key）
+models:
+  local:
+    provider: "lmstudio"
+    baseurl: "http://localhost:1234/v1"
+    model: "local-model"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # 或使用 Ollama
+  # local:
+  #   provider: "ollama"
+  #   baseurl: "http://localhost:11434/api"
+  #   model: "llama3"
+
+# 内存存储
+threadStore:
+  type: "memory"
+  maxMessages: 50
+
+# 简单 Agent
+agents:
+  - name: assistant
+    kind: chat
+    model: "local"
+    instructions: "You are a helpful assistant. Respond in Chinese."
+    tools: []
+
+# 无工作流
+workflows: []
+
+# 渠道禁用
+channels:
+  wechat:
+    enabled: false
+  lark:
+    enabled: false

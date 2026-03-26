@@ -1,0 +1,42 @@
+# =============================================================================
+# Agent Framework - 钉钉渠道配置模板
+# =============================================================================
+#
+# 钉钉机器人渠道配置示例
+#
+# 使用方法：
+#   1. 在钉钉开放平台创建企业内部应用
+#   2. 获取 ClientID、ClientSecret 和 AgentId
+#   3. 运行: ./afcli dingtalk serve
+#
+# =============================================================================
+
+channels:
+  dingtalk:
+    enabled: true
+
+    # 应用配置
+    clientId: "${DINGTALK_CLIENT_ID}"
+    clientSecret: "${DINGTALK_CLIENT_SECRET}"
+    agentId: "${DINGTALK_AGENT_ID}"
+
+    # 服务配置
+    port: 8090
+
+    # 消息加密
+    token: "${DINGTALK_TOKEN}"
+    encryptKey: "${DINGTALK_ENCRYPT_KEY}"
+
+    # 会话策略
+    sessionPolicy: "open"
+
+# =============================================================================
+# 环境变量配置示例
+# =============================================================================
+#
+# DINGTALK_CLIENT_ID=ding123456789
+# DINGTALK_CLIENT_SECRET=abc123...
+# DINGTALK_AGENT_ID=123456
+# DINGTALK_TOKEN=mytoken
+# DINGTALK_ENCRYPT_KEY=abcdefghijklmnopqrstuvwxyz012345
+#

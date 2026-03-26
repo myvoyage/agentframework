@@ -1,0 +1,294 @@
+# =============================================================================
+# Agent Framework - 主配置文件示例
+# =============================================================================
+#
+# 本文件展示所有可用的配置选项，包括新增的微信/飞书/钉钉等渠道配置。
+# 将此文件复制为 host.yaml 并根据实际情况修改。
+#
+# 配置优先级：
+#   1. 环境变量 ${VAR}
+#   2. 配置文件值
+#   3. 默认值
+#
+# 文档：https://docs.openclaw.ai/zh-CN/configuration
+# =============================================================================
+
+# ── 基础配置 ────────────────────────────────────────────────────────────────
+name: agent_framework
+version: "2.0.0"
+
+# 默认模型（必须在 models 中定义）
+defaultModel: "default"
+
+# ── 模型配置 ────────────────────────────────────────────────────────────────
+models:
+  # LM Studio 本地模型
+  default:
+    provider: "lmstudio"
+    baseurl: "http://localhost:1234/v1"
+    model: "local-model"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # GLM 智谱
+  glm-4-flash:
+    provider: "zhipu"
+    baseurl: "https://open.bigmodel.cn/api/paas/v4"
+    model: "glm-4-flash"
+    apikey: "${ZHIPU_API_KEY}"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # OpenAI
+  gpt-4:
+    provider: "openai"
+    baseurl: "https://api.openai.com/v1"
+    model: "gpt-4-turbo-preview"
+    apikey: "${OPENAI_API_KEY}"
+    maxtokens: 8192
+    temperature: 0.7
+
+  # DeepSeek
+  deepseek:
+    provider: "deepseek"
+    baseurl: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    apikey: "${DEEPSEEK_API_KEY}"
+    maxtokens: 4096
+    temperature: 0.7
+
+  # Ollama 本地模型
+  ollama:
+    provider: "ollama"
+    baseurl: "http://localhost:11434/api"
+    model: "llama3"
+    maxtokens: 4096
+    temperature: 0.7
+
+# ── 线程存储配置 ───────────────────────────────────────────────────────────────
+threadStore:
+  type: "memory"           # memory|file|redis|sql
+  # File 存储配置
+  dir: "./data/threads"
+  # Redis 存储配置
+  # redisAddr: "localhost:6379"
+  # redisPrefix: "agent:"
+  # SQL 存储配置
+  # driver: "postgres"
+  # dsn: "postgres://user:pass@localhost:5432/agent?sslmode=disable"
+  # table: "threads"
+  # 内存配置
+  maxMessages: 100         # 每个线程最大消息数
+  maxMessageSize: 1048576  # 单条消息最大字节数 (1MB)
+  ttl: 86400              # 线程过期时间 (秒)
+
+# ── Agent 配置 ─────────────────────────────────────────────────────────────────
+agents:
+  - name: default_chat
+    kind: chat
+    model: "default"
+    instructions: |
+      You are a helpful AI assistant.
+      Answer questions clearly and concisely.
+      Respond in the same language as the user.
+    tools:
+      - web_search
+      - file_read
+    middlewares:
+      - logging
+      - recovery
+
+  - name: code_assistant
+    kind: react
+    model: "gpt-4"
+    instructions: |
+      You are a coding assistant.
+      Help users write, debug, and improve code.
+      Use tools when necessary.
+    tools:
+      - code_execute
+      - file_write
+      - web_search
+
+  - name: multi_turn_agent
+    kind: chat
+    model: "default"
+    instructions: "You are a helpful assistant for multi-turn conversations."
+    maxMessages: 50
+    enableTrimming: true
+    trimRatio: 0.8
+
+# ── 工作流配置 ─────────────────────────────────────────────────────────────────
+workflows:
+  - name: simple_chat
+    kind: sequential
+    steps:
+      - default_chat
+
+  - name: code_workflow
+    kind: sequential
+    steps:
+      - code_assistant
+      - default_chat
+
+  - name: parallel_analysis
+    kind: aggregating_parallel
+    agents:
+      - default_chat
+      - code_assistant
+    aggregator: default_chat
+
+# ── 渠道配置（新增）──────────────────────────────────────────────────────────────
+channels:
+  # ── 微信渠道 ──────────────────────────────────────────────────────────────────
+  wechat:
+    enabled: false
+    type: "wecom"             # wecom/clawbot/mp/miniprogram
+
+    # 企业微信配置
+    corpId: "${WECHAT_CORP_ID}"
+    agentId: "${WECHAT_AGENT_ID}"
+    corpSecret: "${WECHAT_CORP_SECRET}"
+
+    # 公众号/小程序配置
+    # appId: "${WECHAT_APP_ID}"
+    # appSecret: "${WECHAT_APP_SECRET}"
+
+    # 消息配置
+    token: "${WECHAT_TOKEN}"
+    encryptKey: "${WECHAT_ENCRYPT_KEY}"
+
+    # ClawBot 配置（官方插件，推荐）
+    # clawBotUrl: "http://localhost:6174"
+
+    # 服务配置
+    port: 8080
+    autoReply: true
+    sessionPolicy: "open"    # open/restricted/private
+
+  # ── 飞书/Lark 渠道 ──────────────────────────────────────────────────────────────
+  lark:
+    enabled: false
+    domain: "feishu"          # feishu(国内版) / lark(国际版)
+
+    # 应用配置
+    appId: "${LARK_APP_ID}"       # cli_xxx
+    appSecret: "${LARK_APP_SECRET}"
+
+    # 连接模式（WebSocket 推荐，无需公网 URL）
+    connectionMode: "websocket"    # websocket/webhook
+
+    # Webhook 配置（仅 webhook 模式需要）
+    # port: 8089
+    # encryptKey: "${LARK_ENCRYPT_KEY}"
+    # verifyToken: "${LARK_VERIFY_TOKEN}"
+
+    # 会话策略（参考官方 OpenClaw 插件）
+    dmPolicy: "pairing"           # pairing/allowlist/open/disabled
+    dmAllowlist: []               # 私信白名单
+    groupPolicy: "open"           # open/allowlist/disabled
+    groupAllowlist: []            # 群聊白名单
+
+    # 流式回复配置
+    streaming: true
+    textChunkLimit: 2000
+
+    # 功能配置
+    typingIndicator: true
+    resolveSenderNames: true
+
+    # 限流配置
+    rateLimitEnabled: true
+    rateLimitPerSec: 10
+
+    # Bot 信息
+    botName: "AI 助手"
+
+  # ── 钉钉渠道 ──────────────────────────────────────────────────────────────────
+  dingtalk:
+    enabled: false
+    clientId: "${DINGTALK_CLIENT_ID}"
+    clientSecret: "${DINGTALK_CLIENT_SECRET}"
+    agentId: "${DINGTALK_AGENT_ID}"
+    port: 8090
+    token: "${DINGTALK_TOKEN}"
+    encryptKey: "${DINGTALK_ENCRYPT_KEY}"
+    sessionPolicy: "open"
+
+  # ── Telegram 渠道 ──────────────────────────────────────────────────────────────
+  telegram:
+    enabled: false
+    botToken: "${TELEGRAM_BOT_TOKEN}"
+    webhookUrl: "${TELEGRAM_WEBHOOK_URL}"
+    port: 8443
+    allowedChats: []             # 允许的聊天 ID 列表
+
+  # ── Slack 渠道 ──────────────────────────────────────────────────────────────────
+  slack:
+    enabled: false
+    botToken: "${SLACK_BOT_TOKEN}"
+    appToken: "${SLACK_APP_TOKEN}"
+    signingSecret: "${SLACK_SIGNING_SECRET}"
+    socketMode: true             # Socket Mode，无需公网 URL
+    allowedChannels: []          # 允许的频道列表
+
+# ── 消息配置 ─────────────────────────────────────────────────────────────────────
+messaging:
+  enabled: true
+  provider: "default"
+
+# ── 调度器配置 ─────────────────────────────────────────────────────────────────
+scheduler:
+  enabled: false
+  timezone: "Asia/Shanghai"
+  maxJobs: 10
+  jobTimeout: 300
+
+# ── 心跳配置 ───────────────────────────────────────────────────────────────────
+heartbeat:
+  enabled: false
+  interval: 30
+  timeout: 10
+
+# ── 异步任务配置 ─────────────────────────────────────────────────────────────────
+asyncTask:
+  enabled: false
+  maxTasks: 100
+  taskTimeout: 600
+
+# ── Token 压缩配置 ──────────────────────────────────────────────────────────────
+tokenCompression:
+  enabled: false
+  strategy: "truncate"         # truncate/summarize/semantic/hybrid
+  targetTokens: 4000
+  minTokens: 1000
+  maxTokens: 8000
+  preserveSystemMessages: true
+
+# ── 内存管理配置 ────────────────────────────────────────────────────────────────
+memory:
+  modelCache:
+    enabled: true
+    maxSize: 10
+    ttl: 3600
+    cleanupInterval: 600
+
+  memoryMonitor:
+    enabled: true
+    interval: 60
+    historySize: 100
+    alertThreshold: 1024
+    alertInterval: 300
+
+  checkpoint:
+    maxCheckpoints: 10
+    ttl: 86400
+    cleanupInterval: 3600
+
+# ── 上下文存储配置 ──────────────────────────────────────────────────────────────
+contextStore:
+  enabled: false
+  type: "memory"              # openviking/memory/none
+
+# ── 技能系统目录 ────────────────────────────────────────────────────────────────
+skillSystemDir: "./skills"

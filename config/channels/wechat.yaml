@@ -1,0 +1,105 @@
+# =============================================================================
+# Agent Framework - 微信渠道配置模板
+# =============================================================================
+#
+# 微信渠道完整配置示例，支持以下类型：
+#   - wecom: 企业微信应用
+#   - clawbot: 微信官方 ClawBot 插件（推荐）
+#   - mp: 微信公众号
+#   - miniprogram: 微信小程序
+#
+# 使用方法：
+#   1. 复制相关配置到 host.yaml 的 channels.wechat 部分
+#   2. 配置环境变量或直接填写参数
+#   3. 运行: ./afcli wechat serve
+#
+# =============================================================================
+
+channels:
+  wechat:
+    # =========================================================================
+    # 方式一：企业微信应用
+    # =========================================================================
+    enabled: true
+    type: "wecom"
+
+    # 企业微信配置（从管理后台获取）
+    corpId: "${WECHAT_CORP_ID}"           # 企业 ID
+    agentId: "${WECHAT_AGENT_ID}"         # 应用 AgentId
+    corpSecret: "${WECHAT_CORP_SECRET}"   # 应用 Secret
+
+    # 消息加密配置（可选，推荐开启）
+    token: "${WECHAT_TOKEN}"              # Token（自定义）
+    encryptKey: "${WECHAT_ENCRYPT_KEY}"   # EncodingAESKey（后台获取）
+
+    # 服务配置
+    port: 8080                           # Webhook 端口
+    autoReply: true                      # 自动回复
+
+    # 会话策略
+    sessionPolicy: "open"                # open/restricted/private
+                                           # - open: 对所有人开放
+                                           # - restricted: 仅限白名单用户
+                                           # - private: 私有模式
+
+    # =========================================================================
+    # 方式二：ClawBot 官方插件（推荐，无封号风险）
+    # =========================================================================
+    # enabled: true
+    # type: "clawbot"
+    #
+    # # ClawBot 服务地址（安装插件后自动启动）
+    # clawBotUrl: "http://localhost:6174"
+    #
+    # # 安装命令：
+    # # npx -y @tencent-weixin/openclaw-weixin-cli@latest install
+    #
+    # # 特性：
+    # # - 无需公网 URL
+    # # - 无封号风险（官方认证）
+    # # - 支持文件/图片/远程执行等原生功能
+
+    # =========================================================================
+    # 方式三：微信公众号
+    # =========================================================================
+    # enabled: true
+    # type: "mp"
+    #
+    # appId: "${WECHAT_MP_APP_ID}"
+    # appSecret: "${WECHAT_MP_APP_SECRET}"
+    # token: "${WECHAT_MP_TOKEN}"
+    # encryptKey: "${WECHAT_MP_ENCRYPT_KEY}"
+    #
+    # port: 8080
+    # sessionPolicy: "open"
+
+    # =========================================================================
+    # 方式四：微信小程序
+    # =========================================================================
+    # enabled: true
+    # type: "miniprogram"
+    #
+    # appId: "${WECHAT_MP_APP_ID}"
+    # appSecret: "${WECHAT_MP_APP_SECRET}"
+    #
+    # port: 8080
+
+# =============================================================================
+# 环境变量配置示例
+# =============================================================================
+#
+# 在 .env 文件或系统环境变量中配置：
+#
+# # 企业微信
+# WECHAT_CORP_ID=ww1234567890abcdef
+# WECHAT_AGENT_ID=1000001
+# WECHAT_CORP_SECRET=abc123...
+# WECHAT_TOKEN=mytoken
+# WECHAT_ENCRYPT_KEY=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG
+#
+# # 公众号
+# WECHAT_MP_APP_ID=wx1234567890abcdef
+# WECHAT_MP_APP_SECRET=abc123...
+# WECHAT_MP_TOKEN=mytoken
+# WECHAT_MP_ENCRYPT_KEY=abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG
+#

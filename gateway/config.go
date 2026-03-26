@@ -26,6 +26,9 @@ type Config struct {
 	// Agent defaults
 	Agents AgentDefaults `json:"agents"`
 
+	// Runtime settings (OpenClaw-style: Gateway + Agent Runtime)
+	Runtime RuntimeSettings `json:"runtime"`
+
 	// Config file path (not persisted, runtime only)
 	ConfigPath string `json:"-"`
 }
@@ -64,6 +67,39 @@ type AgentDefaults struct {
 	Timeout   int64  `json:"timeout"` // seconds
 }
 
+// RuntimeSettings agent runtime settings (OpenClaw-style)
+type RuntimeSettings struct {
+	// Enable runtime mode
+	Enabled bool `json:"enabled"`
+
+	// Maximum agent instances
+	MaxInstances int `json:"maxInstances"`
+
+	// Instance TTL in seconds
+	InstanceTTL int64 `json:"instanceTtl"`
+
+	// Enable instance pooling
+	EnablePool bool `json:"enablePool"`
+
+	// Enable metrics collection
+	EnableMetrics bool `json:"enableMetrics"`
+
+	// Health check interval in seconds
+	HealthCheckInterval int64 `json:"healthCheckInterval"`
+
+	// Request routing type: "round_robin", "least_conn", "random", "sticky"
+	RouteType string `json:"routeType"`
+
+	// Max retries for failed requests
+	MaxRetries int `json:"maxRetries"`
+
+	// Request timeout in seconds
+	RequestTimeout int64 `json:"requestTimeout"`
+
+	// Worker count for async request processing
+	WorkerCount int `json:"workerCount"`
+}
+
 // DefaultConfig returns the default gateway configuration
 func DefaultConfig() *Config {
 	return &Config{
@@ -89,6 +125,18 @@ func DefaultConfig() *Config {
 		Agents: AgentDefaults{
 			Workspace: "~/.openclaw/workspace",
 			Timeout:   120,
+		},
+		Runtime: RuntimeSettings{
+			Enabled:             true,
+			MaxInstances:        100,
+			InstanceTTL:         1800, // 30 minutes
+			EnablePool:          true,
+			EnableMetrics:       true,
+			HealthCheckInterval: 30,
+			RouteType:           "least_conn",
+			MaxRetries:          3,
+			RequestTimeout:      30,
+			WorkerCount:         10,
 		},
 	}
 }
@@ -140,7 +188,26 @@ func DevConfig() *Config {
 	cfg.CanvasHost.Port = 19005
 	cfg.Agents.Workspace = "~/.openclaw/workspace-dev"
 	cfg.Auth.Token = ""
+	cfg.Runtime.MaxInstances = 10
+	cfg.Runtime.WorkerCount = 4
 	return cfg
+}
+
+// RuntimeConfig returns runtime configuration as time.Duration values
+func (c *Config) RuntimeConfig() (instanceTTL, healthCheckInterval, requestTimeout time.Duration) {
+	instanceTTL = time.Duration(c.Runtime.InstanceTTL) * time.Second
+	if instanceTTL <= 0 {
+		instanceTTL = 30 * time.Minute
+	}
+	healthCheckInterval = time.Duration(c.Runtime.HealthCheckInterval) * time.Second
+	if healthCheckInterval <= 0 {
+		healthCheckInterval = 30 * time.Second
+	}
+	requestTimeout = time.Duration(c.Runtime.RequestTimeout) * time.Second
+	if requestTimeout <= 0 {
+		requestTimeout = 30 * time.Second
+	}
+	return
 }
 
 // Policy returns the gateway policy

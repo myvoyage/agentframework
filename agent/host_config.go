@@ -23,6 +23,7 @@ package agent
 import (
 	"io"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -168,6 +169,140 @@ type HeartbeatSpec struct {
 	Timeout  int `yaml:"timeout,omitempty"`  // Heartbeat timeout in seconds
 }
 
+// =============================================================================
+// Channel Configuration (微信/飞书/钉钉等渠道配置)
+// =============================================================================
+
+// ChannelsSpec represents all channel configurations
+type ChannelsSpec struct {
+	WeChat   *WeChatChannelSpec   `yaml:"wechat,omitempty"`   // 微信渠道配置
+	Lark     *LarkChannelSpec     `yaml:"lark,omitempty"`     // 飞书渠道配置
+	DingTalk *DingTalkChannelSpec `yaml:"dingtalk,omitempty"` // 钉钉渠道配置
+	Telegram *TelegramChannelSpec `yaml:"telegram,omitempty"` // Telegram 渠道配置
+	Slack    *SlackChannelSpec    `yaml:"slack,omitempty"`    // Slack 渠道配置
+}
+
+// WeChatChannelSpec represents WeChat channel configuration
+type WeChatChannelSpec struct {
+	Enabled bool `yaml:"enabled"` // Whether channel is enabled
+
+	// Channel type: wecom/clawbot/mp/miniprogram
+	Type string `yaml:"type"`
+
+	// 企业微信配置
+	CorpID     string `yaml:"corpId,omitempty"`
+	AgentID    string `yaml:"agentId,omitempty"`
+	CorpSecret string `yaml:"corpSecret,omitempty"`
+
+	// 公众号/小程序配置
+	AppID     string `yaml:"appId,omitempty"`
+	AppSecret string `yaml:"appSecret,omitempty"`
+
+	// 消息配置
+	Token       string `yaml:"token,omitempty"`
+	EncryptKey  string `yaml:"encryptKey,omitempty"`
+
+	// ClawBot 配置
+	ClawBotURL string `yaml:"clawBotUrl,omitempty"`
+
+	// 服务配置
+	Port       int  `yaml:"port,omitempty"`
+	AutoReply  bool `yaml:"autoReply,omitempty"`  // 自动回复
+
+	// 会话策略
+	SessionPolicy string `yaml:"sessionPolicy,omitempty"` // open/restricted/private
+}
+
+// LarkChannelSpec represents Lark/Feishu channel configuration
+type LarkChannelSpec struct {
+	Enabled bool `yaml:"enabled"` // Whether channel is enabled
+
+	// 域配置: feishu(国内版) / lark(国际版)
+	Domain string `yaml:"domain"`
+
+	// 应用配置
+	AppID     string `yaml:"appId,omitempty"`
+	AppSecret string `yaml:"appSecret,omitempty"`
+
+	// 连接模式: websocket(推荐) / webhook
+	ConnectionMode string `yaml:"connectionMode"`
+
+	// Webhook 配置
+	Port        int    `yaml:"port,omitempty"`
+	EncryptKey  string `yaml:"encryptKey,omitempty"`
+	VerifyToken string `yaml:"verifyToken,omitempty"`
+
+	// 会话策略 (参考官方 OpenClaw 插件)
+	DMPolicy      string   `yaml:"dmPolicy,omitempty"`      // pairing/allowlist/open/disabled
+	DMAllowlist   []string `yaml:"dmAllowlist,omitempty"`   // 私信白名单
+	GroupPolicy   string   `yaml:"groupPolicy,omitempty"`   // open/allowlist/disabled
+	GroupAllowlist []string `yaml:"groupAllowlist,omitempty"` // 群聊白名单
+
+	// 流式回复配置
+	Streaming      bool `yaml:"streaming,omitempty"`      // 启用流式回复
+	TextChunkLimit int  `yaml:"textChunkLimit,omitempty"` // 文本分块大小
+
+	// 功能配置
+	TypingIndicator   bool `yaml:"typingIndicator,omitempty"`   // 显示输入中状态
+	ResolveSenderNames bool `yaml:"resolveSenderNames,omitempty"` // 解析发送者名称
+
+	// 限流配置
+	RateLimitEnabled bool `yaml:"rateLimitEnabled,omitempty"` // 启用限流
+	RateLimitPerSec  int  `yaml:"rateLimitPerSec,omitempty"`  // 每秒请求数
+
+	// Bot 信息
+	BotName string `yaml:"botName,omitempty"`
+}
+
+// DingTalkChannelSpec represents DingTalk channel configuration
+type DingTalkChannelSpec struct {
+	Enabled bool `yaml:"enabled"` // Whether channel is enabled
+
+	// 应用配置
+	ClientID     string `yaml:"clientId,omitempty"`
+	ClientSecret string `yaml:"clientSecret,omitempty"`
+	AgentID      string `yaml:"agentId,omitempty"`
+
+	// 连接配置
+	Port       int    `yaml:"port,omitempty"`
+	Token      string `yaml:"token,omitempty"`
+	EncryptKey string `yaml:"encryptKey,omitempty"`
+
+	// 会话策略
+	SessionPolicy string `yaml:"sessionPolicy,omitempty"`
+}
+
+// TelegramChannelSpec represents Telegram channel configuration
+type TelegramChannelSpec struct {
+	Enabled bool `yaml:"enabled"` // Whether channel is enabled
+
+	// Bot 配置
+	BotToken string `yaml:"botToken,omitempty"`
+
+	// Webhook 配置
+	WebhookURL string `yaml:"webhookUrl,omitempty"`
+	Port       int    `yaml:"port,omitempty"`
+
+	// 会话策略
+	AllowedChats []int64 `yaml:"allowedChats,omitempty"` // 允许的聊天 ID
+}
+
+// SlackChannelSpec represents Slack channel configuration
+type SlackChannelSpec struct {
+	Enabled bool `yaml:"enabled"` // Whether channel is enabled
+
+	// App 配置
+	BotToken    string `yaml:"botToken,omitempty"`
+	AppToken    string `yaml:"appToken,omitempty"`
+	SigningSecret string `yaml:"signingSecret,omitempty"`
+
+	// Socket Mode
+	SocketMode bool `yaml:"socketMode,omitempty"`
+
+	// 会话策略
+	AllowedChannels []string `yaml:"allowedChannels,omitempty"`
+}
+
 type HostConfig struct {
 	Name           string                 `yaml:"name,omitempty"`           // application name
 	Version        string                 `yaml:"version,omitempty"`        // application version
@@ -184,6 +319,7 @@ type HostConfig struct {
 	Heartbeat      *HeartbeatSpec         `yaml:"heartbeat,omitempty"`      // heartbeat configuration
 	AsyncTask      *AsyncTaskSpec         `yaml:"asyncTask,omitempty"`      // async task configuration
 	TokenCompression *TokenCompressionSpec `yaml:"tokenCompression,omitempty"` // token compression configuration
+	Channels       *ChannelsSpec          `yaml:"channels,omitempty"`       // channel configurations (微信/飞书/钉钉等)
 	Extensions     map[string]interface{} `yaml:"-"`                        // extensions for plugins (not serialized)
 }
 
@@ -197,11 +333,91 @@ func LoadHostConfig(r io.Reader) (*HostConfig, error) {
 	// Expand environment variables: ${VAR} or $VAR
 	expanded := os.ExpandEnv(string(content))
 
+	// Normalize snake_case keys to camelCase for compatibility
+	expanded = normalizeYAMLKeys(expanded)
+
 	var cfg HostConfig
 	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+// normalizeYAMLKeys converts snake_case keys to camelCase for compatibility
+// This allows users to use either format in their config files
+func normalizeYAMLKeys(content string) string {
+	// Map of snake_case to camelCase field names
+	replacements := map[string]string{
+		"default_model:":      "defaultModel:",
+		"skill_system_dir:":   "skillSystemDir:",
+		"base_url:":           "baseurl:",
+		"api_key:":            "apikey:",
+		"max_tokens:":         "maxtokens:",
+		"max_retries:":        "maxretries:",
+		"retry_interval:":     "retryinterval:",
+		"top_p:":              "topp:",
+		"top_k:":              "topk:",
+		"log_level:":          "loglevel:",
+		"thread_store:":       "threadStore:",
+		"context_store:":      "contextStore:",
+		"async_task:":         "asyncTask:",
+		"token_compression:":  "tokenCompression:",
+		"max_messages:":       "maxMessages:",
+		"max_message_size:":   "maxMessageSize:",
+		"cleanup_interval:":   "cleanupInterval:",
+		"job_timeout:":        "jobTimeout:",
+		"task_timeout:":       "taskTimeout:",
+		"target_tokens:":      "targetTokens:",
+		"min_tokens:":         "minTokens:",
+		"summary_model_name:": "summaryModelName:",
+		"summary_max_tokens:": "summaryMaxTokens:",
+		"check_interval:":     "checkInterval:",
+		"session_token_limit:":  "sessionTokenLimit:",
+		"daily_token_limit:":    "dailyTokenLimit:",
+		"long_term_token_limit:": "longTermTokenLimit:",
+		"preserve_system_messages:": "preserveSystemMessages:",
+		"max_checkpoints:":      "maxCheckpoints:",
+		"max_size:":             "maxSize:",
+		"history_size:":         "historySize:",
+		"alert_threshold:":     "alertThreshold:",
+		"alert_interval:":      "alertInterval:",
+		"auto_sync:":           "autoSync:",
+		"corp_id:":             "corpId:",
+		"agent_id:":            "agentId:",
+		"corp_secret:":         "corpSecret:",
+		"app_id:":              "appId:",
+		"app_secret:":          "appSecret:",
+		"encrypt_key:":         "encryptKey:",
+		"claw_bot_url:":        "clawBotUrl:",
+		"auto_reply:":          "autoReply:",
+		"session_policy:":      "sessionPolicy:",
+		"connection_mode:":     "connectionMode:",
+		"verify_token:":        "verifyToken:",
+		"dm_policy:":           "dmPolicy:",
+		"dm_allowlist:":        "dmAllowlist:",
+		"group_policy:":        "groupPolicy:",
+		"group_allowlist:":     "groupAllowlist:",
+		"text_chunk_limit:":    "textChunkLimit:",
+		"typing_indicator:":    "typingIndicator:",
+		"resolve_sender_names:": "resolveSenderNames:",
+		"rate_limit_enabled:":  "rateLimitEnabled:",
+		"rate_limit_per_sec:":  "rateLimitPerSec:",
+		"bot_name:":            "botName:",
+		"bot_token:":           "botToken:",
+		"webhook_url:":         "webhookUrl:",
+		"allowed_chats:":       "allowedChats:",
+		"allowed_channels:":    "allowedChannels:",
+		"socket_mode:":         "socketMode:",
+		"signing_secret:":      "signingSecret:",
+		"client_id:":           "clientId:",
+		"client_secret:":       "clientSecret:",
+	}
+
+	result := content
+	for snake, camel := range replacements {
+		result = strings.ReplaceAll(result, snake, camel)
+	}
+	return result
 }
 
 func LoadHostConfigFile(path string) (*HostConfig, error) {
