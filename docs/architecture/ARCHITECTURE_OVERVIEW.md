@@ -1,671 +1,377 @@
-# 架构概览
+# AgentFramework 架构概览
 
-> **AgentFramework 系统架构全景**
-> **版本**: v2.0.0
-> **最后更新**: 2026-02-15
+> 基于 OpenClaw 架构设计的 Go 语言实现
+> 版本：v2.x · 最后更新：2026-03-29
 
 ---
 
-## 📋 目录
+## 目录
 
-- [架构原则](#架构原则)
-- [分层设计](#分层设计)
-- [核心组件](#核心组件)
-- [Agent 类型系统](#agent-类型系统)
-- [工作流引擎](#工作流引擎)
+- [整体架构](#整体架构)
+- [Gateway 层](#gateway-层)
+- [Agent 运行时](#agent-运行时)
 - [技能系统](#技能系统)
-- [存储系统](#存储系统)
-- [监控遥测](#监控遥测)
-- [安全沙箱](#安全沙箱)
-- [设计模式](#设计模式)
+- [渠道层](#渠道层)
 - [数据流](#数据流)
-- [扩展机制](#扩展机制)
+- [关键设计决策](#关键设计决策)
 
 ---
 
-## 架构原则
+## 整体架构
 
-### SOLID 原则
-
-| 原则 | 应用 | 说明 |
-|------|------|------|
-| **S** - 单一职责 | ⭐⭐⭐⭐⭐ | 每个组件职责明确，修改影响范围小 |
-| **O** - 开闭原则 | ⭐⭐⭐⭐⭐ | 通过接口支持扩展，避免修改现有代码 |
-| **L** - 里氏替换 | ⭐⭐⭐⭐⭐ | 接口实现可完全替换 |
-| **I** - 接口隔离 | ⭐⭐⭐⭐☆ | 接口专一性好，少数"胖接口"可优化 |
-| **D** - 依赖倒置 | ⭐⭐⭐⭐⭐ | 核心模块依赖抽象接口 |
-
-### 其他原则
-
-- **KISS**: 保持简单直观，避免过度设计
-- **DRY**: 代码复用性高，公共功能抽象到 pkg 层
-- **YAGNI**: 只实现当前需要的功能，没有未来预留
-- **性能优先**: 内置连接池、缓存、并发优化
-
----
-
-## 分层设计
-
-### 整体架构图
+AgentFramework 采用四层架构，参照 [OpenClaw 架构设计](https://www.cnblogs.com/tangshiye/p/19642495)以 Go 语言实现：
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│                     Application Layer                  │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │ Desktop App │  │  CLI Tools   │  │  HTTP API   │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────────────┐
-│                      Framework Layer                   │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │    Host     │  │   Agent     │  │  Workflow    │ │
-│  │   Manager   │  │   Manager   │  │   Engine     │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │  Skill      │  │  Model      │  │ Collab      │ │
-│  │  Library    │  │  Factory    │  │  System     │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────────────┐
-│                     Capability Layer                 │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │  Tool       │  │ Middleware  │  │  Event Bus  │ │
-│  │ Registry    │  │   Chain     │  │              │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────────────┐
-│                  Infrastructure Layer                 │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │Checkpoint   │  │  Sandbox    │  │ Observability│ │
-│  │  Store      │  │  Manager    │  │              │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                      Application Layer                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐    │
+│  │  Desktop App  │  │  CLI (afcli) │  │  TUI (aftui)   │    │
+│  │ (Wails+Vue3) │  │   cmd/cli/   │  │   cmd/tui/     │    │
+│  └──────────────┘  └──────────────┘  └────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                       Gateway Layer                          │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  gateway/server.go  (单端口 WS + HTTP 复用)           │   │
+│  │  ├── WebSocketHandler  /                             │   │
+│  │  └── HTTPServer        /v1/* /health /tools/*        │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Agent Runtime Layer                        │
+│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
+│  │    Host     │  │ Lane Queue  │  │  Execution Loop   │   │
+│  │  host.go    │  │lane_queue.go│  │  execution.go     │   │
+│  └─────────────┘  └─────────────┘  └───────────────────┘   │
+│  ┌─────────────┐  ┌─────────────┐  ┌───────────────────┐   │
+│  │ Workflow DAG│  │  Scheduler  │  │  Realtime Agent   │   │
+│  │workflow_dag │  │ scheduler/  │  │realtime_agent.go  │   │
+│  └─────────────┘  └─────────────┘  └───────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    ┌─────────┴──────────┐
+                    ▼                    ▼
+┌──────────────────────┐   ┌───────────────────────────────┐
+│    Skills Layer       │   │         Channel Layer          │
+│  skills/markdown/    │   │  messaging/channel_manager.go  │
+│  ├── discoverer.go   │   │  ├── Telegram                  │
+│  ├── manager.go      │   │  ├── Lark (飞书)               │
+│  └── parser.go       │   │  ├── WeCom (企业微信)          │
+│  skills/registry.go  │   │  ├── QQ / Discord / Slack      │
+│  skills/base_skill.go│   │  └── WebChat / CLI             │
+└──────────────────────┘   └───────────────────────────────┘
 ```
-
-### 应用层 (Application Layer)
-
-**职责**: 提供用户交互界面和 API 入口
-
-| 组件 | 说明 | 技术栈 |
-|------|------|--------|
-| **Desktop App** | 桌面应用界面 | Wails + Vue 3 |
-| **CLI Tools** | 命令行工具 | Go cobra |
-| **HTTP API** | RESTful API | Go Echo |
-
-### 框架层 (Framework Layer)
-
-**职责**: 提供 AI Agent 开发核心框架
-
-| 模块 | 核心类 | 说明 |
-|------|--------|------|
-| **Host** | [Host](../../agent/host.go) | 中央容器，管理所有组件 |
-| **Agent** | [Agent](../../agent/agent.go) | 代理接口和实现 |
-| **Workflow** | [Workflow](../../agent/workflow.go) | 工作流引擎 |
-| **Skill** | [Skill](../../agent/skills/) | 技能系统 |
-| **Model** | [ModelFactory](../../agent/model_factory.go) | 模型管理 |
-| **Collab** | [Collaboration](../../agent/collaboration/) | 协作系统 |
-
-### 能力层 (Capability Layer)
-
-**职责**: 提供可插拔的能力和扩展机制
-
-| 组件 | 说明 | 文件位置 |
-|------|------|----------|
-| **Tool Registry** | 工具注册和管理 | [tool_registry.go](../../agent/dynamic_tool_registry.go) |
-| **Middleware Chain** | 中间件链 | [middleware.go](../../agent/middleware.go) |
-| **Event Bus** | 事件总线 | [event_bus.go](../../agent/event_bus.go) |
-
-### 基础设施层 (Infrastructure Layer)
-
-**职责**: 提供底层服务和存储
-
-| 组件 | 说明 | 文件位置 |
-|------|------|----------|
-| **Checkpoint Store** | 状态持久化 | [checkpoint.go](../../agent/checkpoint.go) |
-| **Sandbox Manager** | 沙箱执行环境 | [sandbox/](../../pkg/tools/sandbox/) |
-| **Observability** | 可观测性 | [monitor.go](../../agent/monitor.go) |
 
 ---
 
-## 核心组件
+## Gateway 层
 
-### Host 系统
+**文件**：`gateway/`
 
-**文件**: [agent/host.go](../../agent/host.go)
+Gateway 是整个框架的网络入口。单个端口（默认 18640）同时承载 WebSocket 和 HTTP 流量：
+
+```
+gateway/
+├── server.go     # 主服务器：监听端口、路由分发
+├── service.go    # 业务逻辑：会话管理、消息派发
+├── config.go     # 配置结构
+├── protocol.go   # WebSocket 协议帧定义
+├── http.go       # HTTP 处理器
+└── websocket.go  # WebSocket 处理器
+```
+
+### WebSocket 协议帧
+
+三种帧类型，首帧必须是 `connect`：
+
+```json
+// 连接帧（首帧必须）
+{"type":"connect","id":"<str>","params":{"auth":{"token":"..."},"deviceIdentity":{}}}
+
+// 请求/响应
+{"type":"req","id":"<str>","method":"<str>","params":{},"idempotencyKey":"<str>"}
+{"type":"res","id":"<str>","ok":true,"payload":{}}
+
+// 服务端事件推送
+{"type":"event","event":"<str>","payload":{},"seq":1}
+```
+
+- 副作用方法（`send`、`agent`）必须携带 `idempotencyKey` 防重放
+- 非 JSON 或首帧不是 `connect` → 立即关闭连接
+
+### HTTP 路由
+
+| 路径 | 说明 |
+|------|------|
+| `GET /health` | 健康检查 |
+| `GET /status` | 服务状态 |
+| `GET /v1/agents` | 列出 Agent |
+| `POST /v1/agents/{name}/run` | 执行 Agent |
+| `GET /tools/list` | 列出可用工具 |
+
+---
+
+## Agent 运行时
+
+### Host — 中央容器
+
+**文件**：`agent/host.go`
+
+`Host` 是整个运行时的中央容器，持有所有组件的引用：
 
 ```go
 type Host struct {
     cfg             *HostConfig
-    configMgr       ConfigManager
-    modelFactory    ModelFactory
-    threadStore     ThreadStore
+    modelFactory    ModelFactory          // 模型工厂
+    threadStore     ThreadStore           // 对话历史存储
     toolRegistry    map[string]tool.BaseTool
     monitorMgr      *MonitorManager
-    pluginMgr       PluginManager
     channelMgr      *messaging.ChannelManager
-    scheduler      interface{}
-    heartbeat      interface{}
-    taskManager     interface{}
-    tokenCompressor interface{}
-    agents         map[string]Agent
-    workflows      map[string]Workflow
-    middlewares    map[string]AgentMiddleware
-    service        *AgentService
+    scheduler       interface{}           // *scheduler.Scheduler
+    heartbeat       interface{}           // *heartbeat.HeartbeatService
+    taskManager     interface{}           // *async.TaskManager
+    tokenCompressor interface{}           // *token.MessageCompressor
+    agents          map[string]Agent
+    workflows       map[string]Workflow
+    middlewares     map[string]AgentMiddleware
+    service         *AgentService
 }
 ```
 
-**职责**:
-- 🎯 管理所有 Agent 生命周期
-- 🔄 管理所有 Workflow 生命周期
-- 🛠️ 管理所有 Skill 注册
-- 📊 管理监控、日志、性能指标
-- 🔧 管理配置更新
+### Lane Queue — 会话串行队列
 
-### Agent 系统
+**文件**：`agent/lane_queue.go`
 
-**接口定义**: [agent/agent.go](../../agent/agent.go)
+Lane Queue 是框架保证消息顺序、消除竞态条件的核心机制：
+
+```
+SessionKey = workspace:channel:userId
+  例：default:telegram:user123
+  例：cron:scheduler:0  （特殊 lane，并行运行）
+```
+
+- 同一 SessionKey 的任务**串行**执行，天然避免竞态
+- 不同 SessionKey 的任务**并行**执行，充分利用并发
+- 支持优先级、超时、幂等键去重
+- 内置背压机制
 
 ```go
-type Agent interface {
-    // 基本信息
-    Name() string
-    Type() string
-    Version() string
+// 提交任务到对应会话队列
+queue.Enqueue(sessionKey, task, opts...)
 
-    // 执行接口
-    Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error)
-    Stream(ctx context.Context, input string, opts ...model.Option) (*schema.StreamReader[*schema.Message], error)
-
-    // 状态管理
-    GetState() AgentState
-    SetState(state AgentState)
-
-    // 配置
-    GetModel() string
-    SetModel(modelName string)
-
-    // 工具管理
-    GetTools() []string
-    AddTool(tool ...Tool)
-    RemoveTool(toolName ...string)
-}
+// 特殊 lane（cron / subagent）可并行
+queue.EnqueueParallel(task, opts...)
 ```
 
-**支持的类型**:
+### ReAct 执行循环
 
-| 类型 | 说明 | 文件 |
-|------|------|------|
-| **ChatAgent** | 基础对话代理 | [chat_agent.go](../../agent/chat_agent.go) |
-| **ReActAgent** | 推理-行动代理 | [react_agent.go](../../agent/react_agent.go) |
-| **HumanAgent** | 人工介入代理 | [human_agent.go](../../agent/hitl.go) |
-| **WorkerAgent** | 专业工作代理 | [swe_agent.go](../../agent/swe_agent.go) |
-| **EdgeAgent** | 边缘代理 | [edge_agent.go](../../agent/edge_agent.go) |
+**文件**：`agent/execution.go`
 
-### Workflow 引擎
+实现 `模型 → 工具 → 模型` 的标准 ReAct 循环：
 
-**文件**: [agent/workflow.go](../../agent/workflow.go)
-
-```go
-type Workflow interface {
-    // 基本信息
-    Name() string
-    Type() WorkflowType
-    Version() string
-
-    // 执行接口
-    Run(ctx context.Context, input string, opts ...Option) (*schema.Message, error)
-
-    // 节点管理
-    AddNode(node Node)
-    RemoveNode(nodeID string)
-    GetNode(nodeID string) (Node, bool)
-
-    // 边管理
-    AddEdge(from, to string, condition ...string)
-    RemoveEdge(from, to string)
-}
+```
+┌─────────────────────────────────────────────────┐
+│                  ReAct Loop                      │
+│                                                  │
+│  [组装上下文]                                    │
+│       ↓                                          │
+│  [模型推理] ←─────────────────────┐              │
+│       ↓                           │              │
+│  是否有工具调用?                  │              │
+│  ├── 是 → [执行工具(并行/串行)]   │              │
+│  │         [收集工具结果] ────────┘              │
+│  └── 否 → [输出最终响应]                         │
+│                                                  │
+│  配置：MaxIterations=10, Timeout=5min            │
+│        ToolTimeout=30s                           │
+└─────────────────────────────────────────────────┘
 ```
 
-**支持的工作流类型**:
+每次运行分配唯一 `RunID`（UUID），通过 `EventChan` 发射可观测事件：
 
-| 类型 | 说明 | 使用场景 |
-|------|------|---------|
-| **Sequential** | 顺序执行 | 简单任务流 |
-| **Parallel** | 并行执行 | 独立任务并发 |
-| **DAG** | 有向无环图 | 复杂依赖关系 |
-| **Routing** | 条件路由 | 动态分支选择 |
-| **Planning** | 规划工作流 | 自动任务分解 |
-| **Graph** | 通用图 | 任意拓扑结构 |
-
-### Skill 系统
-
-**核心接口**: [agent/skills/types.go](../../agent/skills/types.go)
-
-```go
-type Skill interface {
-    // 元信息
-    Info(ctx context.Context) (*schema.ToolInfo, error)
-
-    // 执行接口
-    Invoke(ctx context.Context, input string) (string, error)
-
-    // 状态管理
-    IsEnabled(ctx context.Context) bool
-    SetEnabled(enabled bool)
-
-    // 元数据
-    GetMetadata(ctx context.Context) SkillMetadata
-    SetMetadata(metadata SkillMetadata)
-}
+```
+started → thinking → tool_call → tool_result → ... → completed
 ```
 
-**核心组件**:
+### Workflow DAG
 
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| **SkillRegistry** | [registry.go](../../agent/skills/registry.go) | 技能注册表 |
-| **SkillLoader** | [loader.go](../../agent/skills/loader.go) | 技能加载器 |
-| **SkillsPool** | [pool.go](../../agent/skills/skills_pool.go) | 技能连接池 |
-| **SkillsCache** | [skills_cache.go](../../agent/skills/skills_cache.go) | 技能缓存 |
+**文件**：`agent/workflow_dag.go`
 
-### Collaboration 系统
+并发安全的有向无环图工作流引擎：
 
-**核心组件**: [agent/collaboration/](../../agent/collaboration/)
+- 节点/边用 `sync.RWMutex` 保护，执行前快照防止并发修改
+- `inDegree` 和 `processed` 用 `sync.Map` 实现无锁操作
+- 支持条件路由（边上附加条件表达式）
+- 支持断点续传（检查点存储）
 
-```go
-type AgentTeam struct {
-    name        string
-    description string
-    members     []*TeamMember
-    bus         *MessageBus
-    scheduler   TaskScheduler
-    router      *IntelligentRouter
-    mu          sync.RWMutex
-    ctx         context.Context
-    cancel      context.CancelFunc
-    running     bool
-}
-```
+### Scheduler
 
-**协作模式**:
+**文件**：`agent/scheduler/`
 
-| 模式 | 说明 | 使用场景 |
-|------|------|---------|
-| **Single** | 单代理执行 | 简单任务 |
-| **Parallel** | 并行执行 | 独立任务 |
-| **Sequential** | 顺序执行 | 依赖任务 |
-| **Consensus** | 共识决策 | 多代理投票 |
+- `scheduler.go` — 主调度器，管理周期任务
+- `cron.go` — Cron 表达式解析与执行
 
 ---
 
-## 设计模式
+## 技能系统
 
-### 1. 主机模式 (Host Pattern)
+**文件**：`agent/skills/`
 
-**描述**: Host 作为中央容器，管理所有组件的生命周期
+### Markdown Skill 驱动
 
-**优点**:
-- ✅ 统一的生命周期管理
-- ✅ 简化的依赖注入
-- ✅ 方便的配置管理
+```
+.skills/
+└── my_tool/
+    └── SKILL.md      # Skill 定义文件
+```
 
-**示例**: [agent/host.go](../../agent/host.go#L71)
+`SKILL.md` 结构：
+
+```markdown
+---
+name: my_tool
+description: 简短描述（约 97 字符，启动时加载）
+version: "1.0"
+parameters:
+  query:
+    type: string
+    description: 查询内容
+    required: true
+permissions:
+  - read_files
+---
+
+# 详细使用说明
+
+（激活时才注入到上下文——渐进式披露）
+```
+
+### 加载流程
+
+```
+启动时：扫描所有 SKILL.md → 只读取 name + description（轻量）
+激活时：读取完整 SKILL.md → 注入系统提示词
+热重载：文件变更后下次对话自动生效
+```
+
+### Skill 目录优先级
+
+1. `agent/skills/bundled/` — 内置 Skill（最高优先级）
+2. `~/.agentframework/skills/` — 用户级 Skill
+3. `./.skills/` — 项目级 Skill
+
+### Skill 接口
 
 ```go
-func NewHost(ctx context.Context, cfg *HostConfig, mf ModelFactory, tr map[string]tool.BaseTool, opts ...HostOption) (*Host, error) {
-    // 创建组件
-    host := &Host{
-        cfg:          cfg,
-        configMgr:    NewConfigManager(cfg),
-        modelFactory: mf,
-        toolRegistry: tr,
-        monitorMgr:   NewMonitorManager(...),
-        pluginMgr:    NewPluginManager(),
-        agents:       make(map[string]Agent),
-        workflows:    make(map[string]Workflow),
-        middlewares: make(map[string]AgentMiddleware),
-    }
-
-    // 初始化组件
-    host.initThreadStore(ctx)
-    host.registerDefaultMiddlewares()
-    host.buildAgents(ctx, tr)
-    host.buildWorkflows(ctx)
-
-    return host, nil
+type Skill interface {
+    Info(ctx context.Context) (*schema.ToolInfo, error)
+    Invoke(ctx context.Context, input string) (string, error)
+    IsEnabled(ctx context.Context) bool
+    GetMetadata(ctx context.Context) SkillMetadata
 }
 ```
 
-### 2. 工厂模式 (Factory Pattern)
+---
 
-**描述**: 使用工厂创建各种组件实例
+## 渠道层
 
-**优点**:
-- ✅ 封装创建逻辑
-- ✅ 支持参数验证
-- ✅ 方便的缓存管理
+**文件**：`agent/messaging/`
 
-**示例**: [agent/model_factory.go](../../agent/model_factory.go#L226)
+统一消息格式，适配器模式接入不同平台：
 
-```go
-func NewDefaultModelFactory(cfg DefaultModelFactoryConfig) ModelFactory {
-    // 预处理配置
-    preprocessed := &preprocessedModelConfig{
-        configs: make(map[string]ModelConfig, len(cfg.Models)),
-    }
+| 渠道 | 文件 | Webhook 端口 |
+|------|------|-------------|
+| Telegram | `pkg/workspace/telegram.go` | `:8087/telegram` |
+| 飞书 (Lark) | `pkg/workspace/lark.go` | `:8089/lark` |
+| 企业微信 | `pkg/workspace/wechat.go` | `:8090/wechat` |
+| QQ | `pkg/workspace/qq.go` | `:8088/qq` |
+| Discord | `pkg/workspace/discord.go` | — |
+| Slack | `pkg/workspace/slack.go` | — |
+| WebChat | `pkg/workspace/webchat.go` | — |
+| CLI | `agent/messaging/internal_channel.go` | — |
 
-    // 返回工厂函数
-    return func(ctx context.Context, modelName string) (ChatModel, error) {
-        // 查找配置
-        modelCfg, ok := preprocessed.configs[modelName]
-        if !ok {
-            return nil, fmt.Errorf("model not found")
-        }
+### 消息路由流程
 
-        // 创建模型
-        return createModel(ctx, modelCfg)
-    }
-}
 ```
-
-### 3. 策略模式 (Strategy Pattern)
-
-**描述**: 算法可在运行时动态切换
-
-**优点**:
-- ✅ 算法独立
-- ✅ 易于扩展
-- ✅ 运行时切换
-
-**示例**: Token 压缩策略
-
-```go
-type CompressionStrategy int
-
-const (
-    CompressionStrategyTruncate CompressionStrategy = iota
-    CompressionStrategySummarize
-    CompressionStrategyHybrid
-)
-
-func (c *MessageCompressor) CompressMessages(ctx context.Context, messages []interface{}, targetTokens int) ([]interface{}, error) {
-    switch c.strategy {
-    case CompressionStrategyTruncate:
-        return c.truncate(messages, targetTokens)
-    case CompressionStrategySummarize:
-        return c.summarize(ctx, messages, targetTokens)
-    case CompressionStrategyHybrid:
-        return c.hybrid(ctx, messages, targetTokens)
-    }
-}
-```
-
-### 4. 观察者模式 (Observer Pattern)
-
-**描述**: 组件间通过事件总线通信
-
-**优点**:
-- ✅ 松耦合
-- ✅ 易扩展
-- ✅ 异步通信
-
-**示例**: [agent/event_bus.go](../../agent/event_bus.go)
-
-```go
-type EventBus struct {
-    subscribers map[string][]chan *Message
-    mu           sync.RWMutex
-}
-
-func (eb *EventBus) Subscribe(topic string) chan *Message {
-    eb.mu.Lock()
-    defer eb.mu.Unlock()
-
-    ch := make(chan *Message, 100)
-    eb.subscribers[topic] = append(eb.subscribers[topic], ch)
-    return ch
-}
-
-func (eb *EventBus) Publish(topic string, msg *Message) {
-    eb.mu.RLock()
-    subscribers := eb.subscribers[topic]
-    eb.mu.RUnlock()
-
-    for _, ch := range subscribers {
-        select {
-        case ch <- msg:
-        default:
-            // 非阻塞
-        }
-    }
-}
-```
-
-### 5. 责任链模式 (Chain of Responsibility)
-
-**描述**: 请求通过中间件链处理
-
-**优点**:
-- ✅ 灵活的处理流程
-- ✅ 易于添加新处理
-- ✅ 职责分离
-
-**示例**: [agent/middleware.go](../../agent/middleware.go)
-
-```go
-type AgentMiddleware func(ctx context.Context, req *Request, next HandlerFunc) (*Response, error)
-
-func (h *Host) Use(middleware string) AgentMiddleware {
-    h.middlewares[middleware] = h.createMiddleware(middleware)
-}
-
-func (h *Host) runMiddlewares(ctx context.Context, req *Request) (*Response, error) {
-    // 构建中间件链
-    chain := h.buildMiddlewareChain()
-
-    // 执行链
-    return chain(ctx, req, func(ctx context.Context, req *Request) (*Response, error) {
-        return h.handler(ctx, req)
-    })
-}
-```
-
-### 6. 状态模式 (State Pattern)
-
-**描述**: 工作流节点根据状态执行不同行为
-
-**优点**:
-- ✅ 状态明确
-- ✅ 易于扩展
-- ✅ 避免条件判断
-
-**示例**: 工作流节点状态
-
-```go
-type NodeState int
-
-const (
-    StateIdle NodeState = iota
-    StateRunning
-    StateCompleted
-    StateFailed
-    StateSkipped
-)
-
-func (n *WorkflowNode) Execute(ctx context.Context) error {
-    switch n.state {
-    case StateIdle:
-        return n.executeIdle(ctx)
-    case StateRunning:
-        return n.executeRunning(ctx)
-    case StateCompleted:
-        return nil
-    case StateFailed:
-        return fmt.Errorf("node failed")
-    }
-}
+外部消息（Webhook）
+       ↓
+  ChannelManager
+       ↓
+  NewSessionKey(workspace, channel, userID)
+       ↓
+  LaneQueue.Enqueue(sessionKey, task)
+       ↓
+  ExecutionLoop.Run(context)
+       ↓
+  回复到原渠道
 ```
 
 ---
 
 ## 数据流
 
-### 请求处理流程
+### 完整请求处理流程
 
 ```
-┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐
-│ Client  │ -> │  Host    │ -> │ Agent   │ -> │ Skills  │ -> │ Tools   │
-└─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘
-                      │                │                │                │
-                      ▼                ▼                ▼
-                   ┌─────────┐    ┌─────────┐    ┌─────────┐
-                   │Monitor  │    │ Cache   │    │  Event  │
-                   │ Logger  │    │         │    │  Bus    │
-                   └─────────┘    └─────────┘    └─────────┘
+[用户/渠道]
+    │ WebSocket / Webhook / CLI
+    ▼
+[Gateway / ChannelManager]
+    │ 解析消息，提取 sessionKey
+    ▼
+[LaneQueue]
+    │ 排队，等待当前会话空闲
+    ▼
+[ExecutionLoop]
+    │ 1. 组装上下文（SOUL.md + MEMORY.md + 历史）
+    │ 2. 调用 ChatModel
+    │ 3. 有工具调用 → 执行工具 → 循环
+    │ 4. 生成最终回复
+    ▼
+[回复渠道]
+    │ 流式 / 批量输出
+    ▼
+[用户]
 ```
 
-### 工作流执行流程
+### 上下文组装（5 个来源）
 
-```
-┌───────────────────────────────────────────────────────────┐
-│                   Workflow Engine                   │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │  DAG Parser │ -> │  Scheduler  │              │
-│  └─────────────┘    └─────────────┘              │
-│         │                   │                         │
-│         ▼                   ▼                         │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │  Node Queue │ -> │  Executor   │              │
-│  └─────────────┘    └─────────────┘              │
-│         │                   │                         │
-│         ▼                   ▼                         │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │Checkpoint   │ -> │  State      │              │
-│  │   Store     │    │  Manager    │              │
-│  └─────────────┘    └─────────────┘              │
-└───────────────────────────────────────────────────────────┘
-```
-
-### 协作系统流程
-
-```
-┌───────────────────────────────────────────────────────────┐
-│                   Collaboration System                 │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │  Agent Team │ -> │  Message Bus │              │
-│  └─────────────┘    └─────────────┘              │
-│         │                   │                         │
-│         ▼                   ▼                         │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │  Router     │ -> │  Scheduler   │              │
-│  └─────────────┘    └─────────────┘              │
-│         │                   │                         │
-│         ▼                   ▼                         │
-│  ┌─────────────┐    ┌─────────────┐              │
-│  │  Agent 1   │    │  Agent 2    │              │
-│  └─────────────┘    └─────────────┘              │
-└───────────────────────────────────────────────────────────┘
-```
+1. 系统提示词（Agent 身份定义）
+2. Workspace 文件（`SOUL.md`、`AGENTS.md`）
+3. 记忆文件（`MEMORY.md` + `memory/YYYY-MM-DD.md`）
+4. 会话历史（当前上下文窗口内的对话）
+5. 工具执行结果（前序步骤的返回值）
 
 ---
 
-## 扩展机制
+## 关键设计决策
 
-### 插件系统
+### 为什么用 Lane Queue 而不是直接 goroutine？
 
-**支持类型**:
-- 🔌 **Skill 插件**: 扩展 Agent 能力
-- 🛠️ **Tool 插件**: 提供工具支持
-- 🔄 **Middleware 插件**: 拦截处理流程
-- 📊 **Monitor 插件**: 监控和日志
+直接为每条消息启动 goroutine 会导致同一用户的消息乱序执行（竞态）。Lane Queue 确保同一会话串行，不同会话并行，兼顾正确性和性能。
 
-**示例**: 注册自定义 Skill
+### 为什么 Skill 用 Markdown 而不是代码？
 
-```go
-// 1. 实现接口
-type MySkill struct {
-    *skills.BaseSkill
-}
+Markdown SKILL.md 文件可以被 Agent 自己读取和修改（自写技能），同时对人类友好，不需要编译。渐进式披露（只有激活的 Skill 才注入全文）控制了 token 消耗。
 
-func (s *MySkill) Invoke(ctx context.Context, input string) (string, error) {
-    // 实现逻辑
-    return result, nil
-}
+### 为什么 WebSocket 和 HTTP 共用一个端口？
 
-func (s *MySkill) Info(ctx context.Context) (*schema.ToolInfo, error) {
-    return &schema.ToolInfo{
-        Name: "my_skill",
-        Desc: "My custom skill",
-    }, nil
-}
+简化部署配置，减少防火墙规则，方便在 Nginx 后代理。通过 HTTP Upgrade 头区分两种连接。
 
-// 2. 注册到 Host
-host.RegisterSkill("my_skill", &MySkill{})
-```
+### 为什么 Workflow DAG 用 sync.Map？
 
-### 配置扩展
-
-**支持配置**:
-- 📝 **静态配置**: YAML 文件
-- 🔄 **动态配置**: 运行时更新
-- 🔐 **环境变量**: 环境变量注入
-- 🌐 **HTTP 配置**: 远程配置中心
-
-**示例**: 添加自定义配置
-
-```go
-type MyConfig struct {
-    FeatureEnabled bool `yaml:"feature_enabled"`
-    Threshold      int  `yaml:"threshold"`
-}
-
-// 在 HostConfig 中添加
-type HostConfig struct {
-    // ... 其他字段
-    Custom MyConfig `yaml:"custom"`
-}
-```
-
-### 模型扩展
-
-**支持新模型**:
-
-```go
-// 1. 定义模型配置
-cfg := ModelConfig{
-    Type:    "custom",
-    Model:   "my-model",
-    BaseURL: "http://localhost:8080",
-    Enabled: true,
-}
-
-// 2. 创建模型工厂
-factory := func(ctx context.Context, modelName string) (ChatModel, error) {
-    return &MyChatModel{
-        config: cfg,
-    }, nil
-}
-
-// 3. 注册到 Host
-host.RegisterModelFactory("custom", factory)
-```
+DAG 的 `inDegree` 和 `processed` 字段在并发执行时被多个 goroutine 读写，`sync.Map` 比加锁的普通 map 在高读低写场景下性能更好，且天然避免了 2026-03-26 发现的竞态 bug。
 
 ---
 
 ## 相关文档
 
-- 📘 [Host API](../api/host.md) - Host 接口文档
-- 📘 [Agent API](../api/agent.md) - Agent 接口文档
-- 📘 [Workflow API](../api/workflow.md) - Workflow 接口文档
-- 📘 [Skill API](../api/skills.md) - Skill 接口文档
-- 📘 [组件详解](../components/COMPONENTS.md) - 组件详细说明
-
----
-
-**Made with ❤️ by AgentFramework Team**
+- [快速上手](../quickstart/QUICKSTART.md)
+- [配置指南](../configuration/CONFIGURATION.md)
+- [API 参考](../api/API.md)
+- [Skill 开发指南](../SKILL_DEVELOPMENT.md)
+- [渠道集成](../CHANNEL_INTEGRATION.md)

@@ -1,343 +1,446 @@
-# API 完整参考
+# API 参考
 
-> **AgentFramework API 完整参考**
-> **版本**: v2.0.0
-> **最后更新**: 2026-02-15
-
----
-
-## 📋 目录
-
-- [Host API](#host-api)
-- [Agent API](#agent-api)
-- [Workflow API](#workflow-api)
-- [Skills API](#skills-api)
-- [Sandbox API](#sandbox-api)
-- [Model API](#model-api)
-- [Collaboration API](#collaboration-api)
-- [EventBus API](#eventbus-api)
-- [Checkpoint API](#checkpoint-api)
-- [Monitor API](#monitor-api)
-- [Security API](#security-api)
+> AgentFramework Gateway API  
+> 默认端口：`18640`
 
 ---
 
-## Host API
+## 目录
 
-### 基本方法
+- [HTTP API](#http-api)
+- [WebSocket API](#websocket-api)
+- [错误码](#错误码)
 
-```go
-package host
+---
 
-// NewHost 创建新的 Host 实例
-func NewHost(
-    ctx context.Context,
-    cfg *HostConfig,
-    mf ModelFactory,
-    tr map[string]tool.BaseTool,
-    opts ...HostOption,
-) (*Host, error)
+## HTTP API
+
+所有 HTTP 接口支持 CORS，认证 Token 通过 `Authorization: Bearer <token>` 或自定义 Header `openclaw-auth: <token>` 传递（可选，默认无认证）。
+
+### 健康检查
+
+```http
+GET /health
 ```
 
-**参数说明**:
+响应示例：
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|--------|
-| **ctx** | context.Context | ✅ | Go 上下文对象 |
-| **cfg** | *HostConfig | ✅ | Host 配置对象 |
-| **mf** | ModelFactory | ✅ | 模型工厂接口 |
-| **tr** | map[string]tool.BaseTool | ✅ | 工具注册表 |
-| **opts** | ...HostOption | ❌ | 可选配置项 |
-
-**返回值**:
-- **\*Host**: 新创建的 Host 实例
-- **error**: 错误信息
-
-### 配置方法
-
-```go
-// 获取 Host 配置
-func (h *Host) Config() *HostConfig
-
-// 更新 Host 配置
-func (h *Host) UpdateConfig(cfg *HostConfig) error
-
-// 设置默认模型
-func (h *Host) SetDefaultModel(modelName string) error
-
-// 获取所有 Agent
-func (h *Host) GetAgents() map[string]Agent
-
-// 获取所有 Workflow
-func (h *Host) GetWorkflows() map[string]Workflow
-
-// 获取所有 Skill
-func (h *Host) GetSkills() map[string]Skill
-
-// 获取所有 Tool
-func (h *Host) GetTools() map[string]tool.BaseTool
+```json
+{
+  "status": "ok",
+  "version": "2.0.0",
+  "uptimeMs": 12345,
+  "timestamp": 1711699200,
+  "checks": {
+    "model": { "status": "ok" },
+    "channels": { "status": "ok" }
+  },
+  "channels": [
+    { "name": "lark", "type": "lark", "connected": true, "healthy": true }
+  ],
+  "agents": [
+    { "name": "default_chat", "model": "default", "running": false }
+  ],
+  "memoryUsageMB": 48.5,
+  "cpuPercent": 1.2
+}
 ```
+
+### 状态查询
+
+```http
+GET /status
+```
+
+返回 Gateway 当前状态摘要。
 
 ---
 
-## Agent API
+### OpenAI 兼容接口
 
-### 基本接口
+Gateway 实现了 OpenAI Chat Completions 格式，可直接用 OpenAI SDK 接入。
 
-```go
-package agent
+#### Chat Completions
 
-// Agent 接口定义
-type Agent interface {
-    // 基本信息
-    Name() string
-    Type() string
-    Version() string
+```http
+POST /v1/chat/completions
+Content-Type: application/json
+```
 
-    // 执行接口
-    Run(ctx context.Context, input string, opts ...model.Option) (*schema.Message, error)
-    Stream(ctx context.Context, input string, opts ...model.Option) (*schema.StreamReader[*schema.Message], error)
+请求体（OpenAI 格式）：
 
-    // 状态管理
-    GetState() AgentState
-    SetState(state AgentState)
+```json
+{
+  "model": "default",
+  "messages": [
+    { "role": "user", "content": "你好" }
+  ],
+  "stream": false,
+  "temperature": 0.7,
+  "max_tokens": 1024
+}
+```
 
-    // 配置
-    GetModel() string
-    SetModel(modelName string)
+响应（非流式）：
 
-    // 工具管理
-    GetTools() []string
-    AddTool(tool ...Tool)
-    RemoveTool(toolName ...string)
-    HasTool(toolName string) bool
+```json
+{
+  "id": "chatcmpl-xxx",
+  "object": "chat.completion",
+  "created": 1711699200,
+  "model": "default",
+  "choices": [
+    {
+      "index": 0,
+      "message": { "role": "assistant", "content": "你好！有什么可以帮你的？" },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 15,
+    "total_tokens": 25
+  }
+}
+```
 
-    // 内存管理
-    GetMemory() *Memory
-    SetMemory(memory *Memory)
+响应（流式，`"stream": true`）：SSE 格式，每行 `data: {...}`，以 `data: [DONE]` 结束。
 
-    // 事件监听
-    Subscribe(event string, handler EventHandler) error
-    Unsubscribe(event string, handler EventHandler) error
-    SubscribeStateChanges(callback StateChangeCallback)
+#### Responses
 
-    // 生命周期
-    Initialize(ctx context.Context) error
-    Start(ctx context.Context) error
-    Pause(ctx context.Context) error
-    Resume(ctx context.Context) error
-    Shutdown(ctx context.Context) error
-    Destroy(ctx context.Context) error
+```http
+POST /v1/responses
+Content-Type: application/json
+```
+
+类似 Chat Completions，使用 `input` 字段替代 `messages`：
+
+```json
+{
+  "model": "default",
+  "input": "你好"
 }
 ```
 
 ---
 
-## Workflow API
+### 工具调用
 
-### 工作流接口
+```http
+POST /tools/invoke
+Content-Type: application/json
+```
 
-```go
-package workflow
+请求体：
 
-// 工作流接口定义
-type Workflow interface {
-    // 基本信息
-    Name() string
-    Type() WorkflowType
-    Version() string
+```json
+{
+  "tool": "web_search",
+  "input": "{ \"query\": \"AgentFramework\" }"
+}
+```
 
-    // 执行接口
-    Run(ctx context.Context, input string, opts ...Option) (*schema.Message, error)
+响应：
 
-    // 节点管理
-    AddNode(node Node) error
-    RemoveNode(nodeID string) error
-    GetNode(nodeID string) (Node, bool)
-
-    // 边管理
-    AddEdge(from, to string, condition ...string) error
-    RemoveEdge(from, to string) error
-
-    // 检查点
-    SetCheckpoint(enabled bool) error
-
-    // 生命周期
-    Initialize(ctx context.Context) error
-    Start(ctx context.Context) error
-    Pause(ctx context.Context) error
-    Shutdown(ctx context.Context) error
-    Destroy(ctx context.Context) error
+```json
+{
+  "result": "搜索结果...",
+  "elapsed_ms": 1234
 }
 ```
 
 ---
 
-## Skills API
+## WebSocket API
 
-### 技能接口
+### 连接地址
 
-```go
-package skills
+```
+ws://localhost:18640/
+```
 
-// Skill 接口定义
-type Skill interface {
-    // 元信息
-    Info(ctx context.Context) (*schema.ToolInfo, error)
+### 协议概述
 
-    // 执行接口
-    Invoke(ctx context.Context, input string) (string, error)
+全双工 JSON 帧协议，三种帧类型：
 
-    // 状态管理
-    IsEnabled(ctx context.Context) bool
-    SetEnabled(enabled bool)
+| 帧类型 | 方向 | 说明 |
+|--------|------|------|
+| `req` | 客户端 → 服务端 | 请求 |
+| `res` | 服务端 → 客户端 | 响应（对应某个 req） |
+| `event` | 服务端 → 客户端 | 服务端主动推送 |
 
-    // 元数据
-    GetMetadata(ctx context.Context) SkillMetadata
-    SetMetadata(metadata SkillMetadata)
+**重要规则**：
+- 第一帧**必须**是 `connect` 方法的 `req` 帧
+- 非 JSON 或首帧不是 `connect` → 服务端立即关闭连接
+- 有副作用的方法（如 `agent.run`）**必须**带 `idempotencyKey` 防重放
+
+### 帧结构
+
+**请求帧（req）**：
+
+```json
+{
+  "type": "req",
+  "id": "req-001",
+  "method": "connect",
+  "params": { ... },
+  "idempotencyKey": "uuid-xxx"
+}
+```
+
+**响应帧（res）**：
+
+```json
+{
+  "type": "res",
+  "id": "req-001",
+  "ok": true,
+  "payload": { ... }
+}
+```
+
+错误时：
+
+```json
+{
+  "type": "res",
+  "id": "req-001",
+  "ok": false,
+  "error": {
+    "code": "INVALID_REQUEST",
+    "message": "missing required field: agent",
+    "retryable": false
+  }
+}
+```
+
+**事件帧（event）**：
+
+```json
+{
+  "type": "event",
+  "event": "agent.token",
+  "payload": { "token": "你好" },
+  "seq": 1,
+  "stateVersion": 1
 }
 ```
 
 ---
 
-## Sandbox API
+### 方法列表
 
-### 沙箱管理接口
+#### `connect` — 握手（首帧必须）
 
-```go
-package sandbox
+请求：
 
-// Sandbox 管理器接口
-type SandboxManager interface {
-    // 获取执行器
-    GetExecutor(executorType string) (Executor, error)
+```json
+{
+  "type": "req",
+  "id": "req-001",
+  "method": "connect",
+  "params": {
+    "minProtocol": 1,
+    "maxProtocol": 1,
+    "client": {
+      "id": "client-unique-id",
+      "displayName": "My Client",
+      "version": "1.0.0",
+      "platform": "web"
+    },
+    "caps": {
+      "streaming": true
+    },
+    "auth": {
+      "token": "optional-auth-token"
+    }
+  }
+}
+```
 
-    // 获取配置
-    GetConfig() *SandboxConfig
+成功响应 payload：
 
-    // 设置配置
-    SetConfig(cfg *SandboxConfig) error
-
-    // 生命周期
-    Initialize(ctx context.Context) error
-    Shutdown(ctx context.Context) error
+```json
+{
+  "protocolVersion": 1,
+  "gatewayVersion": "2.0.0",
+  "uptimeMs": 12345,
+  "stateVersion": 1,
+  "health": { "status": "ok" },
+  "policy": {
+    "maxPayload": 1048576,
+    "maxBufferedBytes": 10485760,
+    "tickIntervalMs": 30000
+  }
 }
 ```
 
 ---
 
-## Model API
+#### `agent.run` — 执行 Agent
 
-### 模型管理接口
+```json
+{
+  "type": "req",
+  "id": "req-002",
+  "method": "agent.run",
+  "params": {
+    "agent": "default_chat",
+    "input": "帮我写一首诗",
+    "sessionKey": "default:websocket:user123",
+    "stream": true
+  },
+  "idempotencyKey": "uuid-xxx"
+}
+```
 
-```go
-package model
+**流式模式**下，服务端在最终 `res` 之前会推送多个事件：
 
-// 模型工厂接口
-type ModelFactory interface {
-    // 创建模型
-    Create(ctx context.Context, modelName string, cfg ModelConfig) (ChatModel, error)
+```json
+// 开始推理
+{"type":"event","event":"agent.started","payload":{"runId":"run-xxx"}}
 
-    // 获取模型
-    Get(ctx context.Context, modelName string) (ChatModel, error)
+// 流式 token（流式模式）
+{"type":"event","event":"agent.token","payload":{"token":"春风"}}
+{"type":"event","event":"agent.token","payload":{"token":"送暖"}}
 
-    // 设置默认模型
-    SetDefault(modelName string) error
+// 工具调用（如有）
+{"type":"event","event":"agent.tool_call","payload":{"tool":"web_search","input":"{...}"}}
+{"type":"event","event":"agent.tool_result","payload":{"tool":"web_search","result":"..."}}
+
+// 完成
+{"type":"event","event":"agent.completed","payload":{"runId":"run-xxx","elapsed_ms":1234}}
+```
+
+最终 `res` 帧：
+
+```json
+{
+  "type": "res",
+  "id": "req-002",
+  "ok": true,
+  "payload": {
+    "runId": "run-xxx",
+    "content": "春风送暖入屠苏...",
+    "role": "assistant",
+    "elapsed_ms": 1234
+  }
 }
 ```
 
 ---
 
-## Collaboration API
+#### `agent.status` — 查询 Agent 状态
 
-### 协作系统接口
+```json
+{
+  "type": "req",
+  "id": "req-003",
+  "method": "agent.status",
+  "params": { "agent": "default_chat" }
+}
+```
 
-```go
-package collaboration
+响应 payload：
 
-// Agent 团队接口
-type AgentTeam interface {
-    // 成员管理
-    AddMember(member TeamMember) error
-    RemoveMember(memberID string) error
-    GetMembers() []TeamMember
-
-    // 任务执行
-    ExecuteTask(ctx context.Context, task *Task) (*TaskResult, error)
-
-    // 消息通信
-    SendMessage(ctx context.Context, msg *Message) error
-    Broadcast(ctx context.Context, msg *Message) error
-    Subscribe(topic string, handler EventHandler) error
-    Unsubscribe(topic string, handler EventHandler) error
-
-    // 生命周期
-    Start(ctx context.Context) error
-    Shutdown(ctx context.Context) error
+```json
+{
+  "name": "default_chat",
+  "model": "default",
+  "running": false,
+  "tools": ["web_search"]
 }
 ```
 
 ---
 
-## 快速开始
+#### `ping` — 心跳
 
-### 创建 Host
+```json
+{"type":"req","id":"req-004","method":"ping","params":{}}
+```
 
-```go
-package main
+响应：
 
-import (
-    "context"
-    "fmt"
-    "log"
+```json
+{"type":"res","id":"req-004","ok":true,"payload":{"pong":true,"ts":1711699200}}
+```
 
-    "agentframework/host"
-    "agentframework/config"
-    "agentframework/model"
-)
+---
 
-func main() {
-    ctx := context.Background()
+## 错误码
 
-    // 创建配置
-    cfg := &host.HostConfig{
-        Name:         "my-agent-app",
-        Version:       "1.0.0",
-        DefaultModel:  "ollama-llama3",
-        Models: map[string]host.ModelConfig{
-            "ollama-llama3": {
-                Type:    "ollama",
-                Model:   "llama3",
-                BaseURL: "http://localhost:11434",
-                Enabled: true,
+| 错误码 | 说明 | 是否可重试 |
+|--------|------|-----------|
+| `INVALID_REQUEST` | 参数错误或 Schema 验证失败 | 否 |
+| `UNAUTHORIZED` | 认证失败 | 否 |
+| `NOT_FOUND` | 资源不存在（如 Agent 名称错误） | 否 |
+| `AGENT_TIMEOUT` | Agent 执行超时（默认 5min） | 是 |
+| `UNAVAILABLE` | Gateway 正在关闭或依赖不可用 | 是 |
+| `INTERNAL_ERROR` | 内部错误 | 是（建议延迟后重试） |
+
+---
+
+## 示例：Python 客户端
+
+```python
+import asyncio
+import json
+import websockets
+import uuid
+
+async def chat():
+    async with websockets.connect("ws://localhost:18640/") as ws:
+        # 第一步：握手
+        await ws.send(json.dumps({
+            "type": "req",
+            "id": "req-001",
+            "method": "connect",
+            "params": {
+                "minProtocol": 1,
+                "maxProtocol": 1,
+                "client": {"id": "python-client", "platform": "python"},
+                "caps": {"streaming": True}
+            }
+        }))
+        resp = json.loads(await ws.recv())
+        assert resp["ok"], f"连接失败: {resp['error']}"
+
+        # 第二步：发送消息
+        await ws.send(json.dumps({
+            "type": "req",
+            "id": "req-002",
+            "method": "agent.run",
+            "params": {
+                "agent": "default_chat",
+                "input": "你好！",
+                "stream": True
             },
-        },
-    }
+            "idempotencyKey": str(uuid.uuid4())
+        }))
 
-    // 创建模型工厂
-    mf := model.NewDefaultModelFactory(cfg)
+        # 第三步：接收流式响应
+        while True:
+            msg = json.loads(await ws.recv())
+            if msg["type"] == "event" and msg["event"] == "agent.token":
+                print(msg["payload"]["token"], end="", flush=True)
+            elif msg["type"] == "res":
+                print()  # 换行
+                break
 
-    // 创建 Host
-    h, err := host.NewHost(ctx, cfg, mf, nil)
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    fmt.Println("Host created successfully")
-}
+asyncio.run(chat())
 ```
 
 ---
 
-## 相关文档
+## 示例：curl HTTP
 
-- 📘 [Agent 概览](agent/overview.md) - Agent 系统概览
-- 📘 [Workflow 概览](workflow/overview.md) - Workflow 系统概览
-- 📘 [Skills 概览](skills/overview.md) - Skills 系统概览
-- 📘 [Sandbox 概览](sandbox/overview.md) - Sandbox 系统概览
-- 📘 [配置指南](../../configuration/CONFIGURATION.md) - 详细配置说明
-- 📘 [最佳实践](../../guides/best-practices/BEST_PRACTICES.md) - 开发指南
+```bash
+# 健康检查
+curl http://localhost:18640/health
 
----
-
-**Made with ❤️ by AgentFramework Team**
+# 对话
+curl -X POST http://localhost:18640/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"default","messages":[{"role":"user","content":"你好"}]}'
+```

@@ -1,341 +1,135 @@
-# AgentFramework 文档导航
+# AgentFramework 文档
 
-> **AgentFramework 文档中心**
-> **版本**: v2.0.0
-> **最后更新**: 2026-02-15
+> 高性能企业级 AI Agent 框架 · Go 语言实现 · AGPL-3.0
 
 ---
 
-## 🎯 欢迎使用 AgentFramework 文档！
+## 快速导航
 
-AgentFramework 是一个**企业级、高性能 AI 代理框架**，支持 12+ 种 Agent 类型、6 种工作流、44+ MCP 工具。
-
-### 核心特性
-
-| 特性 | 说明 |
-|------|------|
-| 🚀 **高性能** | Go 语言原生并发，支持 1000+ 并发任务 |
-| 🔧 **高可用** | 检查点恢复、错误重试、健康检查 |
-| 🔌 **高扩展** | 插件化架构、技能系统、MCP 协议 |
-| 🔒 **高安全** | 多层沙箱、权限控制、审计日志 |
-| 📝 **易使用** | YAML 配置、CLI 工具、桌面应用 |
-
-### 📚 文档分类
-
-- 📘 [快速开始](#快速开始) - 5 分钟上手
-- 📘 [最佳实践](#最佳实践) - 开发指南和模式
-- 📘 [教程](#教程) - 实践教程
-- 📘 [架构文档](#架构文档) - 系统设计
-- 📘 [组件文档](#组件文档) - 核心组件详解
-- 📘 [API 文档](#api-文档) - 接口参考
-- 📘 [配置文档](#配置文档) - 配置说明
-- 📘 [部署运维](#部署运维) - 生产环境指南
-- 📘 [参考文档](#参考文档) - 术语表、FAQ 等
+| 想做什么 | 去哪里 |
+|---------|--------|
+| 5 分钟跑起来 | [快速上手](quickstart/QUICKSTART.md) |
+| 理解整体架构 | [架构概览](architecture/ARCHITECTURE_OVERVIEW.md) |
+| 配置 Agent / 模型 / 渠道 | [配置指南](configuration/CONFIGURATION.md) |
+| 查 REST / WebSocket API | [API 参考](api/API.md) |
+| 开发自定义 Skill | [Skill 开发](SKILL_DEVELOPMENT.md) |
+| 接入即时通讯渠道 | [渠道集成](CHANNEL_INTEGRATION.md) |
+| 生产部署 / Docker | [部署指南](DEPLOYMENT_GUIDE.md) |
+| TUI 终端界面 | [TUI 使用指南](TUI_USER_GUIDE.md) |
 
 ---
 
-## 快速开始
+## 项目简介
 
-### 新手指南
+AgentFramework 是一个用 Go 语言从头实现的企业级 AI Agent 运行时，参照 OpenClaw 架构设计。它不是 SDK 包装器——而是完整的 Agent 基础设施：
 
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **快速开始** | 5 分钟上手教程 | [QUICKSTART.md](quickstart/QUICKSTART.md) |
-| **安装指南** | 详细安装说明 | [INSTALLATION.md](quickstart/INSTALLATION.md) |
-| **第一个 Agent** | 创建第一个 Agent | [FIRST_AGENT.md](quickstart/FIRST_AGENT.md) |
+- **Gateway** — WebSocket + HTTP 混合网关，单端口双协议
+- **ReAct 执行循环** — 模型 → 工具 → 模型，内置流式输出
+- **Lane Queue** — 基于 `workspace:channel:userId` 的会话串行队列，消除竞态
+- **Workflow DAG** — 并发安全的有向无环图工作流引擎
+- **Markdown Skill** — 用 SKILL.md 文件定义技能，热重载，渐进式注入
+- **多渠道** — Telegram、飞书、企业微信、QQ、Discord、Slack、WebChat、CLI
 
-### 学习路径
+---
+
+## 目录结构
 
 ```
-┌────────────────────────────────────────────────────┐
-│              Learning Path                      │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │ Quick Start   │ → │ Tutorials   │ → │ Best         │ │
-│  │ (5 minutes)  │  │ (Practice)  │  │ Practices    │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────┐
-│              Advanced Topics                  │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │ Architecture  │ → │ Components  │ → │ Deployment   │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────┘
+docs/
+├── README.md                    # 本文件：文档导航
+├── architecture/
+│   └── ARCHITECTURE_OVERVIEW.md # 四层架构详解
+├── quickstart/
+│   └── QUICKSTART.md            # 快速上手
+├── configuration/
+│   └── CONFIGURATION.md         # 完整配置参考
+├── api/
+│   └── API.md                   # REST + WebSocket API
+├── guides/
+│   └── best-practices/          # 最佳实践
+├── components/                  # 核心组件详解
+├── iot/                         # IoT 专题文档
+├── examples/                    # 示例代码说明
+├── SKILL_DEVELOPMENT.md         # Skill 开发指南
+├── CHANNEL_INTEGRATION.md       # 渠道接入指南
+├── CHANNELS_OVERVIEW.md         # 渠道概览
+├── DEPLOYMENT_GUIDE.md          # 部署运维
+├── TUI_USER_GUIDE.md            # TUI 终端界面
+├── CLI_USAGE.md                 # CLI 命令参考
+├── MULTIMODE_USAGE.md           # 多模式使用
+├── QUICK_REFERENCE.md           # 速查手册
+└── REFACTORING_GUIDE.md         # 重构指南（贡献者用）
 ```
 
 ---
 
-## 最佳实践
+## 核心概念速览
 
-### 开发指南
+### Lane Queue
 
-| 文档 | 优先级 | 说明 |
-|------|-------|------|
-| **架构设计** | 🔴 高 | 架构设计原则和模式 | [ARCHITECTURE.md](guides/best-practices/ARCHITECTURE.md) |
-| **性能优化** | 🔴 高 | 性能优化技巧 | [PERFORMANCE.md](guides/best-practices/PERFORMANCE.md) |
-| **安全实践** | 🔴 高 | 安全最佳实践 | [SECURITY.md](guides/best-practices/SECURITY.md) |
-| **测试策略** | 🟡 中 | 测试策略和方法 | [TESTING.md](guides/best-practices/TESTING.md) |
+每条消息由 `SessionKey`（`workspace:channel:userId`）路由到独立队列，同一会话串行执行，不同会话并行。这是框架保证消息顺序、消除竞态的核心机制。
 
-### 核心原则
+### ReAct 执行循环
 
-AgentFramework 遵循以下核心原则：
+```
+用户消息
+   ↓
+[组装上下文] ← SOUL.md + MEMORY.md + 会话历史
+   ↓
+[模型推理]
+   ↓
+有工具调用? ──是──→ [并行/串行执行工具] ──→ [收集结果] ──→ [模型推理]
+   ↓ 否
+[流式输出到渠道]
+```
 
-| 原则 | 说明 | 应用 |
-|------|------|------|
-| **SOLID** | 面向对象设计 | ⭐⭐⭐⭐⭐ |
-| **KISS** | 保持简单直观 | ⭐⭐⭐⭐ |
-| **DRY** | 避免重复代码 | ⭐⭐⭐⭐⭐ |
-| **YAGNI** | 只实现需要的功能 | ⭐⭐⭐⭐⭐ |
+最大迭代次数默认 10，工具超时默认 30s，整体超时默认 5min。
+
+### Markdown Skill
+
+在任意目录放一个 `SKILL.md` 文件即可定义 Skill：
+
+```markdown
+---
+name: my_tool
+description: 做某件事
+parameters:
+  query:
+    type: string
+    description: 查询内容
+    required: true
+---
+
+# 使用说明
+
+调用此工具时，应当...
+```
+
+框架启动时只扫描 `name + description`（渐进式披露），激活时才注入全文到上下文。
 
 ---
 
-## 教程
+## 构建与运行
 
-### 入门教程
+```bash
+# 构建 CLI
+go build -o build/afcli.exe ./cmd/afcli/
 
-| 教程 | 难度 | 说明 |
-|------|------|------|
-| **创建聊天机器人** | 初级 | 构建简单的聊天机器人 | [CREATING_CHATBOT.md](guides/tutorials/CREATING_CHATBOT.md) |
-| **创建工作流应用** | 中级 | 构建工作流应用 | [CREATING_WORKFLOW.md](guides/tutorials/CREATING_WORKFLOW.md) |
-| **创建协作系统** | 高级 | 构建协作系统 | [CREATING_TEAM.md](guides/tutorials/CREATING_TEAM.md) |
-| **自定义技能** | 中级 | 开发自定义技能 | [CUSTOM_SKILLS.md](guides/tutorials/CUSTOM_SKILLS.md) |
+# 启动 Gateway（默认端口 18640）
+./build/afcli gateway
 
----
+# 指定端口 + 详细日志
+./build/afcli gateway --port 8080 --verbose
 
-## 架构文档
+# 强制终止占用端口的进程后启动
+./build/afcli gateway --force
 
-### 系统架构
-
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **架构概览** | 系统架构全景 | [ARCHITECTURE_OVERVIEW.md](architecture/ARCHITECTURE_OVERVIEW.md) |
-| **设计模式** | 设计模式详解 | [DESIGN_PATTERNS.md](architecture/DESIGN_PATTERNS.md) |
-| **决策记录** | 架构决策记录 | [DECISIONS.md](architecture/DECISIONS.md) |
-
-### 分层说明
-
-```
-┌────────────────────────────────────────────────────┐
-│                 Application Layer                  │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │ Desktop App │  │ CLI Tools   │  │  HTTP API   │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌────────────────────────────────────────────────────┐
-│                      Framework Layer                   │
-│  ┌─────────────┬  ┌─────────────┬  ┌─────────────┐ │
-│  │    Host     │  │   Agent     │  │  Workflow    │ │
-│  └─────────────┘  └─────────────┘  └─────────────┘ │
-└────────────────────────────────────────────────────┘
-```
-
----
-
-## 组件文档
-
-### 核心组件
-
-| 组件 | 说明 | 文档 |
-|------|------|------|
-| **Agent** | 代理系统 | [agent/](components/agent/) |
-| **Workflow** | 工作流引擎 | [workflow/](components/workflow/) |
-| **Skills** | 技能系统 | [skills/](components/skills/) |
-| **Collaboration** | 协作系统 | [collaboration/](components/collaboration/) |
-| **Model** | 模型管理 | [model/](components/model/) |
-| **Sandbox** | 沙箱系统 | [sandbox/](components/sandbox/) |
-
-### 组件导航
-
-```
-agent/
-├── overview.md           # Agent 概览 ✅
-├── types.md              # Agent 类型 ✅
-├── lifecycle.md          # 生命周期 ✅
-└── api.md               # API 参考 ✅
-
-skills/
-├── overview.md           # Skills 概览 ✅
-
-workflow/
-├── overview.md           # Workflow 概览 ✅
-
-collaboration/
-├── overview.md           # Collaboration 概览 ✅
+# Dev 模式
+./build/afcli --dev gateway
 ```
 
 ---
 
-## API 文档
+## 许可证
 
-### 核心 API
-
-| API | 说明 | 文档 |
-|-----|------|------|
-| **Host API** | 主机接口 | [host.md](api/host.md) |
-| **Agent API** | 代理接口 | [agent.md](api/agent.md) |
-| **Workflow API** | 工作流接口 | [workflow.md](api/workflow.md) |
-| **Skills API** | 技能接口 | [skills.md](api/skills.md) |
-
-### 快速参考
-
-| 类别 | 文档 | 说明 |
-|------|------|------|
-| **技能 API** | [SKILLS_API_QUICK_REFERENCE.md](api/SKILLS_API_QUICK_REFERENCE.md) | 技能系统 API 快速参考 |
-
----
-
-## 配置文档
-
-### 配置指南
-
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **配置概览** | 配置系统说明 | [CONFIGURATION.md](configuration/CONFIGURATION.md) |
-| **Host 配置** | 主机配置详解 | [HOST_CONFIG.md](configuration/HOST_CONFIG.md) |
-| **Agent 配置** | 代理配置详解 | [AGENT_CONFIG.md](configuration/AGENT_CONFIG.md) |
-| **Workflow 配置** | 工作流配置详解 | [WORKFLOW_CONFIG.md](configuration/WORKFLOW_CONFIG.md) |
-| **Model 配置** | 模型配置详解 | [MODEL_CONFIG.md](configuration/MODEL_CONFIG.md) |
-| **高级配置** | 高级配置选项 | [ADVANCED.md](configuration/ADVANCED.md) |
-
----
-
-## 部署运维
-
-### 生产部署
-
-| 文档 | 环境 | 说明 |
-|------|------|------|
-| **生产部署** | 生产环境 | [PRODUCTION.md](deployment/PRODUCTION.md) |
-| **Docker 部署** | 容器化 | [DOCKER.md](deployment/DOCKER.md) |
-| **Kubernetes** | K8s | [KUBERNETES.md](deployment/KUBERNETES.md) |
-
-### 运维监控
-
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **监控指南** | 监控配置 | [MONITORING.md](operation/MONITORING.md) |
-| **日志管理** | 日志配置 | [LOGGING.md](operation/LOGGING.md) |
-| **性能调优** | 性能优化 | [PERFORMANCE_TUNING.md](operation/PERFORMANCE_TUNING.md) |
-| **故障排查** | 问题排查 | [TROUBLESHOOTING.md](operation/TROUBLESHOOTING.md) |
-| **备份恢复** | 备份恢复 | [BACKUP_RESTORE.md](operation/BACKUP_RESTORE.md) |
-
----
-
-## 开发文档
-
-### 开发指南
-
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **贡献指南** | 如何贡献 | [CONTRIBUTING.md](development/CONTRIBUTING.md) |
-| **开发环境** | 环境搭建 | [DEVELOPMENT.md](development/DEVELOPMENT.md) |
-| **编码规范** | 代码规范 | [CODING_STANDARDS.md](development/CODING_STANDARDS.md) |
-| **测试指南** | 测试规范 | [TESTING_GUIDE.md](development/TESTING_GUIDE.md) |
-| **文档规范** | 文档编写 | [DOCUMENTATION.md](development/DOCUMENTATION.md) |
-| **发布流程** | 发布流程 | [RELEASING.md](development/RELEASING.md) |
-
----
-
-## 参考文档
-
-### 信息查询
-
-| 文档 | 说明 | 链接 |
-|------|------|------|
-| **术语表** | 专业术语 | [GLOSSARY.md](reference/GLOSSARY.md) |
-| **常见问题** | FAQ | [FAQ.md](reference/FAQ.md) |
-| **更新日志** | 版本历史 | [CHANGELOG.md](reference/CHANGELOG.md) |
-| **迁移指南** | 版本迁移 | [MIGRATION.md](reference/MIGRATION.md) |
-
-### 外部资源
-
-- 📘 [项目主页](../../README.md)
-- 📘 [项目评估](../../PROJECT_EVALUATION.md)
-- 📘 [路线图](../../ROADMAP.md)
-- 📘 [许可证](../../LICENSE)
-
----
-
-## 📞 文档搜索
-
-### 按主题查找
-
-- 📘 [按功能查找](../features/) - 功能相关文档
-- 📘 [按组件查找](../components/) - 组件相关文档
-- 📘 [按场景查找](../scenarios/) - 使用场景文档
-- 📘 [按问题查找](../troubleshooting/) - 问题排查文档
-
-### 按难度查找
-
-- 📘 [新手指南](../getting-started/) - 初级内容
-- 📘 [进阶指南](../intermediate/) - 中级内容
-- 📘 [高级指南](../advanced/) - 高级内容
-
----
-
-## 🤝 贡献指南
-
-### 如何贡献
-
-我们欢迎各种形式的贡献！
-
-- 🐛 报告 Bug
-- 💡 提出新功能
-- 📝 改进文档
-- 🔧 提交代码
-- 🌍 翻译文档
-
-详细指南请参考：
-- 📘 [贡献指南](development/CONTRIBUTING.md)
-- 📘 [文档规范](development/DOCUMENTATION.md)
-
----
-
-## 📞 快速链接
-
-### 核心
-
-- 🏠 [返回项目首页](../README.md)
-- 🚀 [快速开始](quickstart/QUICKSTART.md)
-- 📘 [最佳实践](guides/best-practices/ARCHITECTURE.md)
-- 📘 [API 文档](../api/)
-
-### 常用
-
-- 💡 [常见问题](reference/FAQ.md)
-- 🤝 [贡献指南](development/CONTRIBUTING.md)
-- 📊 [路线图](../ROADMAP.md)
-
-### 联系
-
-- 📮 [官方网站](https://agentframework.dev)
-- 📘 [文档网站](https://docs.agentframework.dev)
-- 📧 [问题反馈](https://github.com/myvoyage/agentframework/issues)
-- 💬 [讨论区](https://github.com/myvoyage/agentframework/discussions)
-
----
-
-## 📊 文档状态
-
-### 完成度
-
-| 类别 | 状态 | 完成度 |
-|------|------|--------|
-| **核心文档** | ✅ 完成 | 100% |
-| **组件文档** | 🔄 进行中 | 60% |
-| **API 文档** | 🔄 进行中 | 70% |
-| **教程文档** | 🔄 进行中 | 40% |
-| **部署文档** | 🔄 计划中 | 20% |
-
-### 总体进度
-
-- ✅ **已完成**: 核心框架、配置文档、最佳实践
-- 🔄 **进行中**: 组件详细文档、API 文档
-- 📋 **计划中**: 教程文档、高级配置指南
-
----
-
-**Made with ❤️ by AgentFramework Team**
+AGPL-3.0-or-later — 详见 [LICENSE](../LICENSE)

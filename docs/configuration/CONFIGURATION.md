@@ -1,751 +1,342 @@
 # 配置指南
 
-> **AgentFramework 完整配置说明**
-> **版本**: v2.0.0
-> **最后更新**: 2026-02-15
+> AgentFramework 完整配置参考
+> 配置文件：`host.yaml`（项目根目录）
 
 ---
 
-## 📋 目录
+## 目录
 
-- [配置概览](#配置概览)
-- [Host 配置](#host-配置)
+- [配置优先级](#配置优先级)
+- [基础配置](#基础配置)
+- [模型配置](#模型配置)
 - [Agent 配置](#agent-配置)
-- [Workflow 配置](#workflow-配置)
-- [Model 配置](#model-配置)
-- [Skill 配置](#skill-配置)
-- [监控配置](#监控配置)
-- [存储配置](#存储配置)
-- [高级配置](#高级配置)
-- [环境变量](#环境变量)
+- [工作流配置](#工作流配置)
+- [渠道配置](#渠道配置)
+- [线程存储](#线程存储)
+- [技能系统](#技能系统)
+- [调度器](#调度器)
+- [Token 压缩](#token-压缩)
+- [Gateway 配置](#gateway-配置)
+- [环境变量注入](#环境变量注入)
 
 ---
 
-## 配置概览
-
-### 配置文件层次
+## 配置优先级
 
 ```
-┌────────────────────────────────────────────────────┐
-│              Configuration Hierarchy          │
-│  ┌────────────┬  ┌────────────┬  ┌────────────┐ │
-│  │  Global    │  │  Project    │  │  Runtime    │ │
-│  │ Config    │  │  Config     │  │  Config     │ │
-│  └────────────┘  └────────────┘  └────────────┘ │
-└────────────────────────────────────────────────────┘
-       │                │                │
-       ▼                ▼                ▼
-┌────────────────────────────────────────────────────┐
-│              host.yaml (Merged)              │
-└────────────────────────────────────────────────────┘
+环境变量 ${VAR}  >  host.yaml 文件值  >  默认值
 ```
 
-### 项目规模
+`host.yaml` 放在项目根目录，启动时自动加载。完整示例见 `config/host.example.yaml`。
 
-| 指标 | 数值 |
-|------|------|
-| 配置项 | **100+** |
-| 存储后端 | **4 种** |
-| 模型支持 | **4 种** |
+---
 
-### 配置文件格式
+## 基础配置
 
-AgentFramework 支持多种配置格式：
-
-| 格式 | 文件扩展名 | 说明 |
-|------|-----------|------|
-| **YAML** | `.yaml`, `.yml` | 推荐格式，人类可读 |
-| **JSON** | `.json` | 机器可读，适合自动化 |
-| **TOML** | `.toml` | 类似 INI 格式 |
-| **Environment** | `.env` | 环境变量 |
-
-### 配置优先级
-
-```
-Environment Variables (最高)
-        │
-        ▼
-Command Line Flags
-        │
-        ▼
-Config Files (host.yaml, config.yaml)
-        │
-        ▼
-Default Values (最低)
+```yaml
+name: agent_framework    # 应用名称
+version: "2.0.0"         # 版本
+defaultModel: "default"  # 默认模型名（必须在 models 中定义）
 ```
 
 ---
 
-## Host 配置
-
-### 基本配置
-
-**文件**: `host.yaml`
+## 模型配置
 
 ```yaml
-# 基本信息
-name: "my-agent-app"
-version: "1.0.0"
-description: "我的第一个 Agent 应用"
+models:
+  # LM Studio 本地模型（推荐本地测试）
+  default:
+    provider: "lmstudio"
+    baseurl: "http://localhost:1234/v1"
+    model: "local-model"
+    maxtokens: 4096
+    temperature: 0.7
 
-# 默认模型
-default_model: "ollama-llama3"
+  # Ollama 本地模型
+  ollama:
+    provider: "ollama"
+    baseurl: "http://localhost:11434/api"
+    model: "llama3"
+    maxtokens: 4096
+    temperature: 0.7
 
-# 日志配置
-logging:
-  level: "info"          # debug, info, warn, error
-  format: "json"        # json, text
-  output: "stdout"       # stdout, stderr, file path
+  # 智谱 GLM
+  glm:
+    provider: "zhipu"
+    baseurl: "https://open.bigmodel.cn/api/paas/v4"
+    model: "glm-4-flash"
+    apikey: "${ZHIPU_API_KEY}"
+
+  # DeepSeek
+  deepseek:
+    provider: "deepseek"
+    baseurl: "https://api.deepseek.com/v1"
+    model: "deepseek-chat"
+    apikey: "${DEEPSEEK_API_KEY}"
+
+  # OpenAI
+  gpt4:
+    provider: "openai"
+    baseurl: "https://api.openai.com/v1"
+    model: "gpt-4-turbo-preview"
+    apikey: "${OPENAI_API_KEY}"
+    maxtokens: 8192
 ```
 
-### HostConfig 结构
-
-```go
-type HostConfig struct {
-    // 基本信息
-    Name         string
-    Version      string
-    Description  string
-
-    // 模型配置
-    DefaultModel string
-    Models       map[string]ModelConfig
-
-    // 日志配置
-    Logging      *LoggingConfig
-
-    // 内存配置
-    Memory       *MemoryConfig
-
-    // 监控配置
-    Monitoring   *MonitoringConfig
-
-    // 异步任务
-    AsyncTask   *AsyncTaskConfig
-
-    // 调度器
-    Scheduler   *SchedulerConfig
-
-    // 心跳服务
-    Heartbeat   *HeartbeatConfig
-
-    // Token 压缩
-    TokenCompression *TokenCompressionConfig
-
-    // 消息总线
-    Messaging   *MessagingConfig
-
-    // 技能系统目录
-    SkillSystemDir string
-}
-```
-
-### 组件启用/禁用
-
-```yaml
-# 启用/禁用组件
-components:
-  checkpoint:
-    enabled: true
-    backend: "sqlite"    # sqlite, redis, memory
-
-  sandbox:
-    enabled: true
-    backend: "docker"     # docker, native
-
-  monitoring:
-    enabled: true
-    backend: "prometheus"  # prometheus, log
-```
+**provider 可选值**：`lmstudio` | `ollama` | `zhipu` | `deepseek` | `openai`
 
 ---
 
 ## Agent 配置
 
-### 内置 Agent 配置
-
 ```yaml
 agents:
-  # 聊天代理
-  - name: "chat"
-    type: "chat"
-    model: "ollama-llama3"
-    instructions: "你是一个有用的AI助手"
-    tools:
-      - "http_request"
-      - "file_operation"
-    hitl:
-      enabled: true
-      approval_mode: "manual"  # manual, auto
+  - name: default_chat         # Agent 名称（唯一）
+    kind: chat                 # chat | react
+    model: "default"           # 使用哪个模型
+    instructions: |
+      你是一个有帮助的 AI 助手。
+      请用中文回复中文问题。
+    tools:                     # 可用工具列表
+      - web_search
+      - file_read
+    middlewares:               # 中间件
+      - logging
+      - recovery
 
-  # ReAct 代理
-  - name: "worker"
-    type: "react"
-    model: "ollama-llama3"
-    instructions: "你是一个专业的工作代理"
-    max_iterations: 10
+  - name: code_agent
+    kind: react                # ReAct 模式：支持工具调用循环
+    model: "gpt4"
+    instructions: "你是一个代码助手。"
     tools:
-      - "code_execution"
-      - "data_processing"
-
-  # 人工代理
-  - name: "human"
-    type: "human"
-    instructions: "人工审核代理"
-    timeout: 3600  # 1小时
+      - code_execute
+      - file_write
+    maxMessages: 50            # 上下文窗口最大消息数
+    enableTrimming: true       # 自动裁剪过长上下文
+    trimRatio: 0.8             # 裁剪到 80%
 ```
 
-### WorkerAgent 专业角色
-
-```yaml
-agents:
-  # 开发者代理
-  - name: "developer"
-    type: "worker"
-    role: "developer"
-    skills:
-      - "code_generation"
-      - "code_review"
-      - "debugging"
-
-  # 浏览器代理
-  - name: "browser"
-    type: "worker"
-    role: "browser"
-    skills:
-      - "web_navigation"
-      - "form_filling"
-      - "data_extraction"
-
-  # 文档代理
-  - name: "writer"
-    type: "worker"
-    role: "writer"
-    skills:
-      - "content_generation"
-      - "editing"
-      - "formatting"
-
-  # 多模态代理
-  - name: "multimodal"
-    type: "worker"
-    role: "multimodal"
-    skills:
-      - "image_analysis"
-      - "chart_generation"
-
-  # 研究者代理
-  - name: "researcher"
-    type: "worker"
-    role: "researcher"
-    skills:
-      - "web_search"
-      - "data_collection"
-      - "analysis"
-
-  # 审核员代理
-  - name: "reviewer"
-    type: "worker"
-    role: "reviewer"
-    skills:
-      - "code_review"
-      - "quality_check"
-
-  # 报告员代理
-  - name: "reporter"
-    type: "worker"
-    role: "reporter"
-    skills:
-      - "report_generation"
-      - "visualization"
-```
+**kind 说明**：
+- `chat` — 基础对话，无工具调用循环
+- `react` — ReAct 模式，支持 `工具调用 → 结果 → 继续推理` 循环
 
 ---
 
-## Workflow 配置
-
-### 基本工作流
+## 工作流配置
 
 ```yaml
 workflows:
-  # 顺序工作流
-  - name: "data_pipeline"
-    type: "sequential"
-    nodes:
-      - name: "collect"
-        agent: "worker"
-        tools: ["web_search"]
-      - name: "analyze"
-        agent: "researcher"
-        tools: ["data_analysis"]
-      - name: "report"
-        agent: "reporter"
-        tools: ["report_generation"]
-    edges:
-      - from: "collect"
-        to: "analyze"
-      - from: "analyze"
-        to: "report"
+  # 顺序执行
+  - name: simple_chat
+    kind: sequential
+    steps:
+      - default_chat
 
-  # 并行工作流
-  - name: "parallel_processing"
-    type: "parallel"
-    nodes:
-      - name: "task1"
-        agent: "worker"
-      - name: "task2"
-        agent: "worker"
-      - name: "task3"
-        agent: "worker"
-
-  # DAG 工作流
-  - name: "complex_workflow"
-    type: "dag"
-    start_node: "start"
-    nodes:
-      - name: "start"
-        agent: "chat"
-      - name: "process_a"
-        agent: "worker"
-        depends_on: ["start"]
-      - name: "process_b"
-        agent: "worker"
-        depends_on: ["start"]
-      - name: "merge"
-        agent: "analyst"
-        depends_on: ["process_a", "process_b"]
+  # 并行执行 + 聚合
+  - name: parallel_analysis
+    kind: aggregating_parallel
+    agents:
+      - default_chat
+      - code_agent
+    aggregator: default_chat    # 汇总 Agent
 ```
 
-### 工作流高级配置
+**kind 可选值**：`sequential` | `aggregating_parallel` | `dag` | `routing`
+
+---
+
+## 渠道配置
+
+### 飞书 / Lark（推荐）
+
+WebSocket 模式无需公网 URL，本地开发最方便：
 
 ```yaml
-workflows:
-  - name: "advanced_workflow"
-    type: "dag"
+channels:
+  lark:
+    enabled: true
+    domain: "feishu"               # feishu(国内版) / lark(国际版)
+    appId: "${LARK_APP_ID}"        # cli_xxx
+    appSecret: "${LARK_APP_SECRET}"
+    connectionMode: "websocket"    # websocket(推荐) / webhook
+    dmPolicy: "pairing"            # 私信策略：pairing/allowlist/open/disabled
+    groupPolicy: "open"            # 群聊策略：open/allowlist/disabled
+    streaming: true                # 流式回复
+    botName: "AI 助手"
+```
 
-    # 检查点配置
-    checkpoint:
-      enabled: true
-      backend: "sqlite"
-      interval: 60  # 每60秒保存一次
+Webhook 模式（需要公网 URL）：
 
-    # 重试策略
-    retry:
-      max_retries: 3
-      backoff_base: 1  # 秒
-      backoff_max: 60   # 秒
+```yaml
+channels:
+  lark:
+    enabled: true
+    domain: "feishu"
+    appId: "${LARK_APP_ID}"
+    appSecret: "${LARK_APP_SECRET}"
+    connectionMode: "webhook"
+    port: 8089
+    encryptKey: "${LARK_ENCRYPT_KEY}"
+    verifyToken: "${LARK_VERIFY_TOKEN}"
+```
 
-    # 超时配置
-    timeout: 3600  # 整个工作流超时(秒)
+### 企业微信
 
-    # HITL 配置
-    human_in_the_loop:
-      enabled: true
-      approval_nodes: ["merge"]
-      notification_channels: ["slack", "email"]
+```yaml
+channels:
+  wechat:
+    enabled: true
+    type: "wecom"
+    corpId: "${WECHAT_CORP_ID}"
+    agentId: "${WECHAT_AGENT_ID}"
+    corpSecret: "${WECHAT_CORP_SECRET}"
+    token: "${WECHAT_TOKEN}"
+    encryptKey: "${WECHAT_ENCRYPT_KEY}"
+    port: 8080
+    sessionPolicy: "open"         # open/restricted/private
+```
+
+### Telegram
+
+```yaml
+channels:
+  telegram:
+    enabled: true
+    botToken: "${TELEGRAM_BOT_TOKEN}"
+    webhookUrl: "${TELEGRAM_WEBHOOK_URL}"
+    port: 8443
+    allowedChats: []              # 空表示不限制
+```
+
+### Slack
+
+```yaml
+channels:
+  slack:
+    enabled: true
+    botToken: "${SLACK_BOT_TOKEN}"
+    appToken: "${SLACK_APP_TOKEN}"
+    signingSecret: "${SLACK_SIGNING_SECRET}"
+    socketMode: true              # Socket Mode 无需公网 URL
+```
+
+### 钉钉
+
+```yaml
+channels:
+  dingtalk:
+    enabled: true
+    clientId: "${DINGTALK_CLIENT_ID}"
+    clientSecret: "${DINGTALK_CLIENT_SECRET}"
+    agentId: "${DINGTALK_AGENT_ID}"
+    port: 8090
+    token: "${DINGTALK_TOKEN}"
+    encryptKey: "${DINGTALK_ENCRYPT_KEY}"
+    sessionPolicy: "open"
 ```
 
 ---
 
-## Model 配置
+## 线程存储
 
-### OpenAI 配置
-
-```yaml
-models:
-  gpt-4:
-    type: "openai"
-    model: "gpt-4-turbo"
-    api_key: "${OPENAI_API_KEY}"    # 从环境变量读取
-    base_url: "https://api.openai.com/v1"
-    enabled: true
-
-    # 高级配置
-    timeout: 30
-    max_retries: 3
-    retry_interval: 1
-
-    # 生成参数
-    temperature: 0.7
-    max_tokens: 4096
-    top_p: 1.0
-    top_k: 0
-
-    # 请求头
-    headers:
-      Custom-Header: "value"
-
-    # 优先级
-    priority: 10
-```
-
-### Ollama 配置
+对话历史的持久化方式：
 
 ```yaml
-models:
-  llama3:
-    type: "ollama"
-    model: "llama3"
-    base_url: "http://localhost:11434"
-    enabled: true
+threadStore:
+  type: "memory"          # memory | file | redis | sql
+  maxMessages: 100        # 每个线程最大消息数
+  maxMessageSize: 1048576 # 单条消息最大字节 (1MB)
+  ttl: 86400              # 线程过期时间（秒）
 
-    # 超时
-    timeout: 120
+  # file 模式
+  dir: "./data/threads"
 
-    # 连接池
-    pool_size: 10
+  # redis 模式
+  # redisAddr: "localhost:6379"
+  # redisPrefix: "agent:"
 
-    # 缓存
-    cache_enabled: true
-    cache_ttl: 3600  # 秒
-```
-
-### LM Studio 配置
-
-```yaml
-models:
-  local-model:
-    type: "lmstudio"
-    model: "my-model"
-    base_url: "http://localhost:1234/v1"
-    api_key: "lm-studio"
-    enabled: true
+  # sql 模式
+  # driver: "postgres"
+  # dsn: "postgres://user:pass@localhost:5432/agent?sslmode=disable"
+  # table: "threads"
 ```
 
 ---
 
-## Skill 配置
-
-### 技能注册表配置
-
-**文件**: `.skills/registry/registry.yaml`
+## 技能系统
 
 ```yaml
-skills:
-  # HTTP 请求技能
-  - name: "http_request"
-    enabled: true
-    config:
-      timeout: 30
-      max_retries: 3
-      allowed_hosts:
-        - "api.example.com"
-        - "*.github.com"
-
-  # 文件操作技能
-  - name: "file_operation"
-    enabled: true
-    config:
-      allowed_paths:
-        - "/tmp"
-        - "/home/user/work"
-      max_file_size: 10485760  # 10MB
-
-  # 代码执行技能
-  - name: "code_execution"
-    enabled: true
-    config:
-      timeout: 60
-      memory_limit: "512m"
-      cpu_limit: "1.0"
-
-  # 数据处理技能
-  - name: "data_processing"
-    enabled: true
-    config:
-      max_data_size: 1048576
+skillSystemDir: "./skills"    # Skill 根目录（默认 ./.skills）
 ```
 
-### 自定义技能配置
+Skill 目录结构：
 
-```yaml
-skills:
-  - name: "my_custom_skill"
-    version: "1.0.0"
-    category: "custom"
-    tags: ["api", "automation"]
-    enabled: true
-
-    # 参数定义
-    input_schema:
-      type: "object"
-      properties:
-        url:
-          type: "string"
-          description: "目标 URL"
-        method:
-          type: "string"
-          enum: ["GET", "POST", "PUT", "DELETE"]
-          default: "GET"
-      required: ["url"]
-
-    # 输出定义
-    output_schema:
-      type: "object"
-      properties:
-        status:
-          type: "integer"
-        data:
-          type: "object"
-
-    # 执行配置
-    config:
-      timeout: 30
-      max_retries: 3
-      cache_enabled: true
-      cache_ttl: 300
 ```
+.skills/
+└── my_tool/
+    └── SKILL.md
+```
+
+框架还会自动扫描：
+- `agent/skills/bundled/` — 内置 Skill（最高优先级）
+- `~/.agentframework/skills/` — 用户级 Skill
 
 ---
 
-## 高级配置
-
-### 内存管理配置
-
-```yaml
-memory:
-  # 监控配置
-  monitoring:
-    enabled: true
-    interval: 5s          # 监控间隔
-    history_size: 100     # 历史记录数
-
-  # 告警规则
-  alert_rules:
-    - id: "heap-512mb"
-      name: "堆内存告警"
-      severity: "warning"
-      threshold: 536870912   # 512MB
-      operator: ">"
-      duration: 30s
-
-    - id: "heap-1gb"
-      name: "堆内存严重告警"
-      severity: "error"
-      threshold: 1073741824  # 1GB
-      operator: ">"
-      duration: 15s
-
-  # 缓存配置
-  cache:
-    max_size: 200
-    ttl: 1h
-    dynamic_weights: true
-
-  # 工作线程配置
-  worker:
-    count: 5
-    initial_pool_size: 10
-    max_pool_size: 100
-    resize_policy: dynamic    # dynamic, fixed
-
-  # 容器配置
-  container:
-    max_initial_size: 5
-    max_total_size: 20
-
-  # 事件总线配置
-  event_bus:
-    initial_queue_size: 1000
-    max_queue_size: 10000
-    resize_threshold: 0.8
-```
-
-### 监控配置
-
-```yaml
-monitoring:
-  # 采样率
-  sampling_rate: 0.2    # 20% 采样
-
-  # 最大样本数
-  max_samples: 200
-
-  # OpenTelemetry 配置
-  opentelemetry:
-    enabled: true
-    endpoint: "http://localhost:4318"
-    headers:
-      Authorization: "Bearer token"
-
-  # Prometheus 配置
-  prometheus:
-    enabled: true
-    endpoint: "/metrics"
-    port: 9090
-```
-
-### 异步任务配置
-
-```yaml
-async_task:
-  enabled: true
-
-  # 并发配置
-  max_concurrent: 10
-
-  # 队列配置
-  queue_size: 1000
-
-  # 超时配置
-  default_timeout: 300    # 5分钟
-
-  # 重试配置
-  retry:
-    max_retries: 3
-    backoff_base: 1
-    backoff_max: 60
-```
-
-### 调度器配置
+## 调度器
 
 ```yaml
 scheduler:
-  enabled: true
+  enabled: false
   timezone: "Asia/Shanghai"
-
-  # 并发配置
-  max_concurrent_jobs: 5
-
-  # 任务超时
-  job_timeout: 3600    # 1小时
-
-  # 日志配置
-  log_level: "info"
-```
-
-### 心跳服务配置
-
-```yaml
-heartbeat:
-  enabled: true
-
-  # 心跳间隔
-  interval: 30s    # 30秒
-
-  # 超时时间
-  timeout: 90s     # 90秒
-
-  # 日志配置
-  log_level: "info"
-```
-
-### Token 压缩配置
-
-```yaml
-token_compression:
-  enabled: true
-
-  # 压缩策略
-  strategy: "hybrid"    # truncate, summarize, hybrid
-
-  # 目标配置
-  target_tokens: 4000
-  min_tokens: 500
-  max_tokens: 8000
-
-  # 摘要配置
-  preserve_system_messages: true
-  summary_model: "ollama-llama3"
-  summary_max_tokens: 500
-  temperature: 0.3
-```
-
-### 消息总线配置
-
-```yaml
-messaging:
-  enabled: true
-
-  # 频道配置
-  channels:
-    - name: "slack"
-      type: "slack"
-      enabled: true
-
-    - name: "telegram"
-      type: "telegram"
-      enabled: false
-
-  # 启用指标
-  enable_metrics: true
+  maxJobs: 10
+  jobTimeout: 300              # 单个任务超时秒数
 ```
 
 ---
 
-## 环境变量
+## Token 压缩
 
-### 通用环境变量
+当上下文过长时自动压缩：
 
-| 变量名 | 说明 | 默认值 |
-|--------|------|--------|
-| `AF_LOG_LEVEL` | 日志级别 | `info` |
-| `AF_LOG_FORMAT` | 日志格式 | `json` |
-| `AF_CONFIG_PATH` | 配置文件路径 | `./host.yaml` |
-| `AF_WORK_DIR` | 工作目录 | `./` |
-| `AF_DATA_DIR` | 数据目录 | `./data` |
-
-### OpenAI 配置
-
-| 变量名 | 说明 |
-|--------|------|
-| `OPENAI_API_KEY` | OpenAI API 密钥 |
-| `OPENAI_BASE_URL` | OpenAI API 地址 |
-| `OPENAI_ORG_ID` | OpenAI 组织 ID |
-
-### Ollama 配置
-
-| 变量名 | 说明 |
-|--------|------|
-| `OLLAMA_BASE_URL` | Ollama 服务地址 |
-| `OLLAMA_MODEL` | 默认模型名称 |
-
-### 数据库配置
-
-| 变量名 | 说明 |
-|--------|------|
-| `REDIS_URL` | Redis 连接地址 |
-| `REDIS_PASSWORD` | Redis 密码 |
-| `SQLITE_PATH` | SQLite 数据库路径 |
+```yaml
+tokenCompression:
+  enabled: false
+  strategy: "truncate"         # truncate | summarize | semantic | hybrid
+  targetTokens: 4000
+  minTokens: 1000
+  maxTokens: 8000
+  preserveSystemMessages: true # 保留系统消息不压缩
+```
 
 ---
 
-## 配置验证
+## Gateway 配置
 
-### 验证命令
+Gateway 启动参数通过命令行传入（不在 host.yaml 中）：
 
 ```bash
-# 验证配置文件
-agentframework validate host.yaml
-
-# 验证并输出详细信息
-agentframework validate --verbose host.yaml
-
-# 验证特定组件
-agentframework validate --component models host.yaml
-agentframework validate --component agents host.yaml
-agentframework validate --component workflows host.yaml
+./build/afcli gateway \
+  --port 18640 \       # 监听端口（默认 18640）
+  --verbose \          # 详细日志
+  --force              # 强制终止占用端口的进程
 ```
 
-### 常见错误
-
-| 错误 | 说明 | 解决方案 |
-|------|------|---------|
-| `model not found` | 模型未配置 | 检查 `models` 配置 |
-| `invalid API key` | API 密钥无效 | 检查环境变量或配置文件 |
-| `agent not found` | Agent 不存在 | 检查 `agents` 配置 |
-| `skill not found` | 技能未注册 | 检查技能配置 |
-| `timeout` | 操作超时 | 增加 timeout 配置 |
-
 ---
 
-## 相关文档
+## 环境变量注入
 
-- 📘 [快速开始](../quickstart/QUICKSTART.md) - 5 分钟上手指南
-- 📘 [最佳实践](BEST_PRACTICES.md) - 配置最佳实践
-- 📘 [故障排查](../operation/TROUBLESHOOTING.md) - 配置问题排查
-- 📘 [生产部署](../deployment/PRODUCTION.md) - 生产环境配置
+配置文件中 `${VAR_NAME}` 格式会在运行时从环境变量读取：
 
----
+```bash
+# 设置环境变量
+export LARK_APP_ID=cli_xxx
+export LARK_APP_SECRET=xxx
+export DEEPSEEK_API_KEY=sk-xxx
 
-**Made with ❤️ by AgentFramework Team**
+# 或者用 .env 文件（需要自行加载）
+```
+
+建议把敏感信息（API Key、Secret）全部用环境变量注入，不要硬写到配置文件。
